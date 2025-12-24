@@ -1,0 +1,9 @@
+{
+    "name": "Squidly Animal Game",
+    "title": "Animal Game",
+    "subtitle": "Interactive Animals",
+    "version": "1.0.0",
+    "description": "Led your animal through the squidly session",
+    "author": "Antigravity",
+    "icon": "https://cursor-splash.squidly.com.au/cursor-splash.png"
+}

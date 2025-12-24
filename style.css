@@ -1,0 +1,44 @@
+body { 
+    margin: 0; 
+    padding: 0; 
+    overflow: hidden; 
+    background: #000; 
+    /* Colors */
+    --icon-color: #cac9c4;
+    --icon-color-hover: white;
+
+    --color-red1: #ff4a53;
+    --color-blue1: #5ad3ff;
+
+    --icon-color-red: #db4a4a;
+    --icon-color-red-hover: #ff4646;
+
+    --action-red: #a61f00;
+    --action-red-dark: #811a03;
+    
+
+    --color-danger: #8f53c9;
+    --color-danger-light: #c091ee;
+    --color-danger-lighter: #d7b9f4;
+
+    --panel-light-color: #252222ab;
+    --panel-dark-color: #252222;
+    --panel-darker-color: #1b1818;
+    --panel-color: #3a3737;
+}
+
+#instruction-text {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #ffffff;
+    font-family: Arial, sans-serif;
+    font-size: 48px;
+    font-weight: bold;
+    text-align: center;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0.7;
+}
+
