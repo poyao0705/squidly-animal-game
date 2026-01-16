@@ -1,8 +1,8 @@
-body { 
-    margin: 0; 
-    padding: 0; 
-    overflow: hidden; 
-    background: #000; 
+body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: hsl(100, 93%, 82%);
     /* Colors */
     --icon-color: #cac9c4;
     --icon-color-hover: white;
@@ -15,7 +15,7 @@ body {
 
     --action-red: #a61f00;
     --action-red-dark: #811a03;
-    
+
 
     --color-danger: #8f53c9;
     --color-danger-light: #c091ee;
@@ -41,4 +41,3 @@ body {
     pointer-events: none;
     opacity: 0.7;
 }
-

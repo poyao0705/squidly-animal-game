@@ -132,16 +132,21 @@ class WebGLSquidCursor {
     group.add(bodyFish);
 
     // Tail
-    const tailGeom = new this.THREE.CylinderGeometry(0, 60, 60, 4, false);
+    const tailGeom = new this.THREE.CylinderGeometry(0, 60, 60, 4, 1, false);
     const tailMat = new this.THREE.MeshLambertMaterial({
       color: 0xff00dc,
       flatShading: true
     });
+    // Create pivot at attachment point
+    const tailPivot = new this.THREE.Object3D();
+    tailPivot.position.set(-60, 0, 0);
     const tailFish = new this.THREE.Mesh(tailGeom, tailMat);
     tailFish.scale.set(0.8, 1, 0.1);
-    tailFish.position.x = -60;
     tailFish.rotation.z = -halfPI;
-    group.add(tailFish);
+    // Offset mesh by half-length so pivot sits at base (cylinder height = 60, half = 30)
+    tailFish.position.x = -30;
+    tailPivot.add(tailFish);
+    group.add(tailPivot);
 
     // Lips
     const lipsGeom = new this.THREE.BoxGeometry(25, 10, 120);
@@ -156,13 +161,22 @@ class WebGLSquidCursor {
     group.add(lipsFish);
 
     // Fins
+    // Top fin with pivot - positioned to fit within body (body spans -60 to +60 in X)
+    // In main.js, fin is at x=-20, y=60, rotating around its center
+    // To fit within body, fin should extend from attachment point toward center
+    const topFinPivot = new this.THREE.Object3D();
+    topFinPivot.position.set(-20, 60, 0);
     const topFish = new this.THREE.Mesh(tailGeom, tailMat);
     topFish.scale.set(0.8, 1, 0.1);
-    topFish.position.x = -20;
-    topFish.position.y = 60;
     topFish.rotation.z = -halfPI;
-    group.add(topFish);
+    // Offset mesh so fin extends from attachment point (x=-20) toward center
+    // Cylinder is 60 units, half is 30. To fit in body (-60 to +60), position mesh at +10
+    // so fin extends from -20 to +40 (fits within -60 to +60)
+    topFish.position.x = 10;
+    topFinPivot.add(topFish);
+    group.add(topFinPivot);
 
+    // Right side fin - matching main.js exactly (no pivot, rotates around center)
     const sideRightFish = new this.THREE.Mesh(tailGeom, tailMat);
     sideRightFish.scale.set(0.8, 1, 0.1);
     sideRightFish.rotation.x = halfPI;
@@ -172,6 +186,7 @@ class WebGLSquidCursor {
     sideRightFish.position.z = -60;
     group.add(sideRightFish);
 
+    // Left side fin - matching main.js exactly (no pivot, rotates around center)
     const sideLeftFish = new this.THREE.Mesh(tailGeom, tailMat);
     sideLeftFish.scale.set(0.8, 1, 0.1);
     sideLeftFish.rotation.x = halfPI;
@@ -281,7 +296,9 @@ class WebGLSquidCursor {
       group,
       bodyFish,
       tailFish,
+      tailPivot,
       topFish,
+      topFinPivot,
       sideRightFish,
       sideLeftFish,
       rightEye,
@@ -400,7 +417,9 @@ class WebGLSquidCursor {
       group,
       bodyFish,
       tailFish,
+      tailPivot,
       topFish,
+      topFinPivot,
       sideRightFish,
       sideLeftFish,
       rightEye,
@@ -499,10 +518,12 @@ class WebGLSquidCursor {
     const backTailCycle = Math.cos(squid.angleFin);
     const sideFinsCycle = Math.sin(squid.angleFin / 5);
 
-    tailFish.rotation.y = backTailCycle * 0.5;
-    topFish.rotation.x = sideFinsCycle * 0.5;
-    sideRightFish.rotation.x = Math.PI / 2 + sideFinsCycle * 0.2;
-    sideLeftFish.rotation.x = Math.PI / 2 + sideFinsCycle * 0.2;
+    tailPivot.rotation.y = backTailCycle * 0.5;
+    topFinPivot.rotation.x = sideFinsCycle * 0.5;
+    // Side fins rotate around their center (matching main.js exactly)
+    const halfPI = Math.PI / 2;
+    sideRightFish.rotation.x = halfPI + sideFinsCycle * 0.2;
+    sideLeftFish.rotation.x = halfPI + sideFinsCycle * 0.2;
 
     // Update color based on speed (matching fish example)
     const rvalue = (this.config.COLOR_SLOW.r + (this.config.COLOR_FAST.r - this.config.COLOR_SLOW.r) * s2) / 255;
