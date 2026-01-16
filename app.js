@@ -2,16 +2,25 @@
  * Squidly Animal Game - Main Application
  *
  * Manages interactive animal-themed cursor effects.
+ * 
+ * Fish control priority:
+ * - Participant controls fish when active
+ * - Host controls fish when participant is inactive (handled in fish-cursor.js)
  */
 
-import { WebGLSquidCursor } from "./index.js";
+import { WebGLFishCursor } from "./index.js";
 
 const ANIMAL_TYPE_METHODS = {
-  "animal-game/squid": "_switchToSquid",
+  "animal-game/fish": "_switchToFish",
 };
 
 // Initialize default animal type
-firebaseSet("animal-game/currentType", "animal-game/squid");
+firebaseSet("animal-game/currentType", "animal-game/fish");
+
+// Debug logging (throttled to avoid spam)
+let lastHostLog = 0;
+let lastParticipantLog = 0;
+const LOG_THROTTLE_MS = 500;
 
 window.animalGame = {
   currentType: null,
@@ -35,17 +44,17 @@ window.animalGame = {
     }
   },
 
-  _switchToSquid: function () {
+  _switchToFish: function () {
     if (this.switching) return;
     this.switching = true;
 
     this.destroyCurrentCursor().then(() => {
-      this.currentCursor = new WebGLSquidCursor({
+      this.currentCursor = new WebGLFishCursor({
         autoMouseEvents: false,
       });
 
-      this.currentType = "animal-game/squid";
-      document.body.setAttribute("app-type", "animal-game/squid");
+      this.currentType = "animal-game/fish";
+      document.body.setAttribute("app-type", "animal-game/fish");
       this.switching = false;
     });
   },
@@ -58,29 +67,36 @@ window.animalGame = {
     return Promise.resolve();
   },
 
-  updatePointerPosition: function (x, y, color = null, userId = null) {
+  /**
+   * Update pointer position for host or participant.
+   * Both are always tracked; fish-cursor.js decides which one controls the fish.
+   */
+  updatePointerPosition: function (x, y, color = null, isParticipant = false) {
     if (!this.currentCursor || !this.currentCursor.inputManager) return;
-    this.currentCursor.inputManager.updatePointerPosition(
-      x,
-      y,
-      color,
-      userId || "mouse"
-    );
+
+    const pointerId = isParticipant ? "participant" : "host";
+
+    // Debug logging (throttled)
+    const now = performance.now();
+    if (isParticipant && now - lastParticipantLog > LOG_THROTTLE_MS) {
+      console.log(`[Participant] x=${Math.round(x)}, y=${Math.round(y)}`);
+      lastParticipantLog = now;
+    } else if (!isParticipant && now - lastHostLog > LOG_THROTTLE_MS) {
+      console.log(`[Host] x=${Math.round(x)}, y=${Math.round(y)}`);
+      lastHostLog = now;
+    }
+
+    this.currentCursor.inputManager.updatePointerPosition(x, y, color, pointerId);
   },
 };
 
 document.addEventListener("DOMContentLoaded", () => {
-  // Initialize with squid
-  window.animalGame._switchToSquid();
+  // Initialize with fish
+  window.animalGame._switchToFish();
 
-  // Local mouse movement
+  // Local mouse movement (always sends as host)
   document.addEventListener("mousemove", (e) => {
-    window.animalGame.updatePointerPosition(
-      e.clientX,
-      e.clientY,
-      null,
-      "local-mouse"
-    );
+    window.animalGame.updatePointerPosition(e.clientX, e.clientY, null, false);
   });
 
   // Sync with Firebase
@@ -95,9 +111,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Multi-user updates
+  // Multi-user updates (always sends as participant)
   addCursorListener((data) => {
-    window.animalGame.updatePointerPosition(data.x, data.y, null, data.user);
+    console.log(`[CursorListener] Received: user=${data.user}, x=${Math.round(data.x)}, y=${Math.round(data.y)}, source=${data.source}`);
+    window.animalGame.updatePointerPosition(data.x, data.y, null, true);
   });
 
   // Grid icon for switching
@@ -106,11 +123,11 @@ document.addEventListener("DOMContentLoaded", () => {
     0,
     {
       symbol: "change",
-      displayValue: "Squid Mode",
+      displayValue: "Fish Mode",
       type: "action",
     },
     () => {
-      console.log("Squid mode active");
+      console.log("Fish mode active");
     }
   );
 });

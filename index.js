@@ -2,11 +2,11 @@
  * Squidly Animal Game - Library
  */
 
-import WebGLSquidCursor from './squid-cursor.js';
+import WebGLFishCursor from './fish-cursor.js';
 
-export { WebGLSquidCursor };
-export default { WebGLSquidCursor };
+export { WebGLFishCursor };
+export default { WebGLFishCursor };
 
 if (typeof window !== 'undefined') {
-  window.WebGLSquidCursor = WebGLSquidCursor;
+  window.WebGLFishCursor = WebGLFishCursor;
 }
