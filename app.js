@@ -94,7 +94,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Initialize with fish
   window.animalGame._switchToFish();
 
-  // Local mouse movement (always sends as host)
+  // Local mouse for direct control (host fallback when participant not active)
   document.addEventListener("mousemove", (e) => {
     window.animalGame.updatePointerPosition(e.clientX, e.clientY, null, false);
   });
@@ -111,10 +111,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Multi-user updates (always sends as participant)
+  // All cursor input comes from main Squidly app via addCursorListener
+  // data.user can be: "host-eyes", "host-mouse", "participant-eyes", "participant-mouse"
   addCursorListener((data) => {
-    console.log(`[CursorListener] Received: user=${data.user}, x=${Math.round(data.x)}, y=${Math.round(data.y)}, source=${data.source}`);
-    window.animalGame.updatePointerPosition(data.x, data.y, null, true);
+    const isParticipant = data.user.includes("participant");
+    console.log(`[CursorListener] user=${data.user}, isParticipant=${isParticipant}, x=${Math.round(data.x)}, y=${Math.round(data.y)}, source=${data.source}`);
+    window.animalGame.updatePointerPosition(data.x, data.y, null, isParticipant);
   });
 
   // Grid icon for switching
