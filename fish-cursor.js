@@ -51,7 +51,21 @@ class WebGLFishCursor {
             SPEED_SCALE_FACTOR: 0.3,
             MIN_SPEED_THRESHOLD: 0.001,
             MAX_SPEED: 2.0,
-            SMOOTHING: 10
+            SMOOTHING: 10,
+            // Starfield
+            STAR_COUNT: 5,
+            STAR_GRID_ROWS: 4,
+            STAR_GRID_COLS: 5,
+            STAR_MIN_COL: 1,
+            STAR_SIZE_MIN: 0.12,
+            STAR_SIZE_MAX: 0.3,
+            STAR_FLOAT_RADIUS: 0.35,
+            STAR_FLOAT_SPEED_MIN: 0.6,
+            STAR_FLOAT_SPEED_MAX: 1.4,
+            STAR_DEPTH_RANGE: 1.2,
+            STAR_SPIN_SPEED_MIN: 0.3,
+            STAR_SPIN_SPEED_MAX: 1.1,
+            STAR_COLORS: ['#ffd54a']
         }, configOverrides);
 
         // Particle system
@@ -60,6 +74,10 @@ class WebGLFishCursor {
         this._particleSpawnTimer = 0;
         this._xLimit = 0;
         this._yLimit = 0;
+
+        // Starfield
+        this.stars = [];
+        this._starCells = [];
 
         this.canvas = document.createElement("canvas");
         Object.assign(this.canvas.style, {
@@ -120,6 +138,8 @@ class WebGLFishCursor {
         const h = window.innerHeight;
         this.fish.pointerX = w / 2;
         this.fish.pointerY = h / 2;
+
+        this._initStars();
 
         this._lastT = performance.now();
         this.ready = true;
@@ -383,6 +403,7 @@ class WebGLFishCursor {
         }
 
         this._updateParticles(dt);
+        this._updateStars(dt, time);
         this.renderer.render(this.scene, this.camera);
     }
 
@@ -609,6 +630,183 @@ class WebGLFishCursor {
         }
     }
 
+    _shuffleInPlace(list) {
+        for (let i = list.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [list[i], list[j]] = [list[j], list[i]];
+        }
+        return list;
+    }
+
+    _getRandomStarCells(count) {
+        const cells = [];
+        const { STAR_GRID_ROWS, STAR_GRID_COLS, STAR_MIN_COL } = this.config;
+        for (let row = 0; row < STAR_GRID_ROWS; row++) {
+            for (let col = STAR_MIN_COL; col < STAR_GRID_COLS; col++) {
+                cells.push({ row, col });
+            }
+        }
+        this._shuffleInPlace(cells);
+        return cells.slice(0, Math.min(count, cells.length));
+    }
+
+    _randBetween(min, max) {
+        return min + Math.random() * (max - min);
+    }
+
+    _gridCellToWorld(row, col) {
+        if (!this._xLimit || !this._yLimit) {
+            return new this.THREE.Vector3(0, 0, 0);
+        }
+        const { STAR_GRID_ROWS, STAR_GRID_COLS } = this.config;
+        const colWidth = (this._xLimit * 2) / STAR_GRID_COLS;
+        const rowHeight = (this._yLimit * 2) / STAR_GRID_ROWS;
+        const x = -this._xLimit + (col + 0.5) * colWidth;
+        const y = this._yLimit - (row + 0.5) * rowHeight;
+        return new this.THREE.Vector3(x, y, 0);
+    }
+
+    _getRandomStarColor() {
+        const { STAR_COLORS } = this.config;
+        const hex = STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)];
+        return new this.THREE.Color(hex);
+    }
+
+    _createStarGeometry(points = 5, outerR = 1, innerR = 0.5, depth = 0.35) {
+        const shape = new this.THREE.Shape();
+        const step = Math.PI / points;
+
+        for (let i = 0; i < points * 2; i++) {
+            const radius = (i % 2 === 0) ? outerR : innerR;
+            const angle = i * step - Math.PI / 2;
+            const x = Math.cos(angle) * radius;
+            const y = Math.sin(angle) * radius;
+            if (i === 0) {
+                shape.moveTo(x, y);
+            } else {
+                shape.lineTo(x, y);
+            }
+        }
+        shape.closePath();
+
+        const geometry = new this.THREE.ExtrudeGeometry(shape, {
+            depth,
+            bevelEnabled: true,
+            bevelThickness: depth * 0.35,
+            bevelSize: outerR * 0.18,
+            bevelSegments: 3,
+            curveSegments: 10
+        });
+
+        geometry.center();
+        return geometry;
+    }
+
+    _createStarMesh() {
+        const size = this._randBetween(this.config.STAR_SIZE_MIN, this.config.STAR_SIZE_MAX);
+        const geometry = this._createStarGeometry(5, size, size * 0.55, size * 0.35);
+        const color = this._getRandomStarColor();
+        const material = new this.THREE.MeshPhysicalMaterial({
+            color,
+            emissive: color.clone(),
+            emissiveIntensity: 0.3,
+            roughness: 0.08,
+            metalness: 0.0,
+            transmission: 0.9,
+            thickness: size * 0.6,
+            ior: 1.45,
+            clearcoat: 1.0,
+            clearcoatRoughness: 0.1,
+            transparent: true
+        });
+        const mesh = new this.THREE.Mesh(geometry, material);
+
+        mesh.rotation.set(
+            Math.random() * Math.PI,
+            Math.random() * Math.PI,
+            Math.random() * Math.PI
+        );
+
+        return mesh;
+    }
+
+    _initStars() {
+        this._clearStars();
+        this._starCells = this._getRandomStarCells(this.config.STAR_COUNT);
+        this._starCells.forEach((cell) => {
+            const mesh = this._createStarMesh();
+            const basePosition = this._gridCellToWorld(cell.row, cell.col);
+            const radius = this._randBetween(0.1, this.config.STAR_FLOAT_RADIUS);
+            const speed = this._randBetween(this.config.STAR_FLOAT_SPEED_MIN, this.config.STAR_FLOAT_SPEED_MAX);
+            const depth = this._randBetween(0.2, this.config.STAR_DEPTH_RANGE);
+            const spinSpeed = this._randBetween(this.config.STAR_SPIN_SPEED_MIN, this.config.STAR_SPIN_SPEED_MAX);
+            const phase = Math.random() * Math.PI * 2;
+
+            mesh.position.copy(basePosition);
+            this.scene.add(mesh);
+            this.stars.push({
+                mesh,
+                cell,
+                basePosition,
+                radius,
+                speed,
+                depth,
+                spinSpeed,
+                phase
+            });
+        });
+    }
+
+    _updateStarGridPositions() {
+        if (!this.stars.length) return;
+        this.stars.forEach((star) => {
+            star.basePosition.copy(this._gridCellToWorld(star.cell.row, star.cell.col));
+        });
+    }
+
+    _updateStars(dt, time) {
+        if (!this.stars.length) return;
+        this.stars.forEach((star) => {
+            const t = time * star.speed + star.phase;
+            const xOffset = Math.cos(t) * star.radius;
+            const yOffset = Math.sin(t * 1.3) * star.radius;
+            const zOffset = Math.sin(t * 0.7) * star.depth;
+
+            star.mesh.position.set(
+                star.basePosition.x + xOffset,
+                star.basePosition.y + yOffset,
+                zOffset
+            );
+
+            star.mesh.rotation.x += star.spinSpeed * dt;
+            star.mesh.rotation.y += star.spinSpeed * 0.8 * dt;
+
+            if (star.mesh.material && "emissiveIntensity" in star.mesh.material) {
+                const twinkle = 0.15 + 0.15 * Math.sin(time * 5 + star.phase);
+                star.mesh.material.emissiveIntensity = 0.3 + twinkle;
+            }
+        });
+    }
+
+    _clearStars() {
+        if (!this.stars.length) return;
+        this.stars.forEach((star) => {
+            this.scene.remove(star.mesh);
+            star.mesh.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach((material) => material.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            });
+        });
+        this.stars = [];
+        this._starCells = [];
+    }
+
     _resize() {
         const w = window.innerWidth;
         const h = window.innerHeight;
@@ -616,6 +814,7 @@ class WebGLFishCursor {
         this.camera.aspect = w / h;
         this.camera.updateProjectionMatrix();
         this._calculateViewLimits();
+        this._updateStarGridPositions();
     }
 
     _debounce(fn, ms) {
@@ -640,6 +839,8 @@ class WebGLFishCursor {
         this.flyingParticles.forEach(particle => this.scene.remove(particle));
         this.flyingParticles = [];
         this.waitingParticles = [];
+
+        this._clearStars();
 
         this.renderer.dispose();
         this.canvas.remove();

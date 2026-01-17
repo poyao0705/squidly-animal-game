@@ -76,19 +76,10 @@ window.animalGame = {
 
     const pointerId = isParticipant ? "participant" : "host";
 
-    // Debug logging (throttled)
-    const now = performance.now();
-    if (isParticipant && now - lastParticipantLog > LOG_THROTTLE_MS) {
-      console.log(`[Participant] x=${Math.round(x)}, y=${Math.round(y)}`);
-      lastParticipantLog = now;
-    } else if (!isParticipant && now - lastHostLog > LOG_THROTTLE_MS) {
-      console.log(`[Host] x=${Math.round(x)}, y=${Math.round(y)}`);
-      lastHostLog = now;
-    }
-
     this.currentCursor.inputManager.updatePointerPosition(x, y, color, pointerId);
   },
 };
+
 
 document.addEventListener("DOMContentLoaded", () => {
   // Initialize with fish
@@ -132,4 +123,14 @@ document.addEventListener("DOMContentLoaded", () => {
       console.log("Fish mode active");
     }
   );
+
+  // const hasSessionInfo = typeof session_info !== "undefined" && session_info != null;
+  // console.log("session_info", hasSessionInfo ? session_info : null);
+  // const isHostUser = hasSessionInfo ? session_info?.user === "host" : false;
+  // const participantActive = hasSessionInfo ? session_info?.participantActive === true : false;
+  // if (isHostUser && !participantActive) {
+  //   placeStars();
+  // } else {
+  //   console.log("Skipping stars", { isHostUser, participantActive });
+  // }
 });
