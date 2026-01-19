@@ -17,6 +17,12 @@ const ANIMAL_TYPE_METHODS = {
 // Initialize default animal type
 firebaseSet("animal-game/currentType", "animal-game/fish");
 
+// Initialize default grid size
+firebaseSet("animal-game/gridSize", 4);
+
+// Initialize score to 0 on startup
+firebaseSet("animal-game/score", 0);
+
 // Debug logging (throttled to avoid spam)
 let lastHostLog = 0;
 let lastParticipantLog = 0;
@@ -27,6 +33,60 @@ window.animalGame = {
   currentCursor: null,
   switching: false,
   syncingFromParent: false,
+  gridSize: 4,
+  score: 0,
+  _scoreEl: null,
+
+  incrementScore: function () {
+    this.score++;
+    firebaseSet("animal-game/score", this.score);
+    this._updateScoreDisplay();
+  },
+
+  _updateScoreDisplay: function () {
+    if (this._scoreEl) {
+      this._scoreEl.textContent = this.score;
+    }
+  },
+
+  _createScoreDisplay: function () {
+    if (this._scoreEl) return;
+
+    const container = document.createElement("div");
+    container.id = "score-container";
+    Object.assign(container.style, {
+      position: "fixed",
+      top: "20px",
+      right: "20px",
+      display: "flex",
+      alignItems: "center",
+      gap: "10px",
+      padding: "12px 20px",
+      background: "linear-gradient(135deg, rgba(255, 234, 0, 0.9), rgba(255, 180, 0, 0.9))",
+      borderRadius: "16px",
+      boxShadow: "0 4px 20px rgba(255, 200, 0, 0.4)",
+      zIndex: "9999",
+      fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+      pointerEvents: "none",
+    });
+
+    const starIcon = document.createElement("span");
+    starIcon.textContent = "\u2B50";
+    starIcon.style.fontSize = "28px";
+
+    this._scoreEl = document.createElement("span");
+    Object.assign(this._scoreEl.style, {
+      fontSize: "32px",
+      fontWeight: "bold",
+      color: "#333",
+      textShadow: "1px 1px 2px rgba(255, 255, 255, 0.8)",
+    });
+    this._scoreEl.textContent = this.score;
+
+    container.appendChild(starIcon);
+    container.appendChild(this._scoreEl);
+    document.body.appendChild(container);
+  },
 
   setAppType: function (type) {
     if (this.currentType !== type) {
@@ -49,9 +109,14 @@ window.animalGame = {
     this.switching = true;
 
     this.destroyCurrentCursor().then(() => {
+      const self = this;
       this.currentCursor = new WebGLFishCursor({
         autoMouseEvents: false,
+        onStarCollected: function () {
+          self.incrementScore();
+        },
       });
+      this.currentCursor.setStarGrid(this.gridSize);
 
       this.currentType = "animal-game/fish";
       document.body.setAttribute("app-type", "animal-game/fish");
@@ -102,6 +167,29 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Sync grid size with Firebase
+  firebaseOnValue("animal-game/gridSize", (value) => {
+    const size = Number(value);
+    if (Number.isFinite(size) && size >= 1 && size <= 4) {
+      window.animalGame.gridSize = size;
+      if (window.animalGame.currentCursor) {
+        window.animalGame.currentCursor.setStarGrid(size);
+      }
+    }
+  });
+
+  // Create score display
+  window.animalGame._createScoreDisplay();
+
+  // Sync score with Firebase
+  firebaseOnValue("animal-game/score", (value) => {
+    const score = Number(value);
+    if (Number.isFinite(score) && score >= 0) {
+      window.animalGame.score = score;
+      window.animalGame._updateScoreDisplay();
+    }
+  });
+
   // All cursor input comes from main Squidly app via addCursorListener
   // data.user can be: "host-eyes", "host-mouse", "participant-eyes", "participant-mouse"
   addCursorListener((data) => {
@@ -110,17 +198,51 @@ document.addEventListener("DOMContentLoaded", () => {
     window.animalGame.updatePointerPosition(data.x, data.y, null, isParticipant);
   });
 
-  // Grid icon for switching
+  // // Grid icon for switching
+  // setIcon(
+  //   1,
+  //   0,
+  //   {
+  //     symbol: "change",
+  //     displayValue: "Fish Mode",
+  //     type: "action",
+  //   },
+  //   () => {
+  //     console.log("Fish mode active");
+  //   }
+  // );
+
+  // Grid size up icon
   setIcon(
     1,
     0,
     {
-      symbol: "change",
-      displayValue: "Fish Mode",
+      symbol: "add",
+      displayValue: "Grid +",
       type: "action",
     },
     () => {
-      console.log("Fish mode active");
+      const newSize = Math.min(4, window.animalGame.gridSize + 1);
+      if (newSize !== window.animalGame.gridSize) {
+        firebaseSet("animal-game/gridSize", newSize);
+      }
+    }
+  );
+
+  // Grid size down icon
+  setIcon(
+    2,
+    0,
+    {
+      symbol: "minus",
+      displayValue: "Grid -",
+      type: "action",
+    },
+    () => {
+      const newSize = Math.max(1, window.animalGame.gridSize - 1);
+      if (newSize !== window.animalGame.gridSize) {
+        firebaseSet("animal-game/gridSize", newSize);
+      }
     }
   );
 

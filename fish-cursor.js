@@ -21,9 +21,12 @@ let lastController = null;
 const CONTROLLER_LOG_THROTTLE_MS = 1000;
 
 class WebGLFishCursor {
-    constructor({ configOverrides = {}, autoMouseEvents = false } = {}) {
+    constructor({ configOverrides = {}, autoMouseEvents = false, onStarCollected = null } = {}) {
         this.THREE = null;
         this.ready = false;
+
+        // Callback when a star is collected
+        this.onStarCollected = onStarCollected;
 
         // Single fish instance (created on init)
         this.fish = null;
@@ -44,7 +47,7 @@ class WebGLFishCursor {
             COLOR_SLOW: { r: 0, g: 207, b: 255 }, // 0x00cfff cyan
             COLOR_FAST: { r: 255, g: 0, b: 224 }, // 0xff00e0 magenta
             // Particle system
-            PARTICLE_SPAWN_RATE: 14, // particles per second (every ~70ms)
+            PARTICLE_SPAWN_RATE: 8, // particles per second (every ~250ms)
             PARTICLE_MAX_Z: 30,
             PARTICLE_COLORS: ['#dff69e', '#00ceff', '#002bca', '#ff00e0', '#3f159f', '#71b583', '#00a2ff'],
             // Speed effects
@@ -54,9 +57,8 @@ class WebGLFishCursor {
             SMOOTHING: 10,
             // Starfield
             STAR_COUNT: 5,
-            STAR_GRID_ROWS: 4,
-            STAR_GRID_COLS: 5,
-            STAR_MIN_COL: 1,
+            STAR_GRID_SIZE: 4,
+            STAR_UI_LEFT_PX: 220,
             STAR_SIZE_MIN: 0.12,
             STAR_SIZE_MAX: 0.3,
             STAR_FLOAT_RADIUS: 0.35,
@@ -65,7 +67,7 @@ class WebGLFishCursor {
             STAR_DEPTH_RANGE: 1.2,
             STAR_SPIN_SPEED_MIN: 0.3,
             STAR_SPIN_SPEED_MAX: 1.1,
-            STAR_COLORS: ['#ffd54a']
+            STAR_COLORS: ['#ffea00', '#ffd54a', '#ffcc2a', '#fff3a0']
         }, configOverrides);
 
         // Particle system
@@ -78,6 +80,7 @@ class WebGLFishCursor {
         // Starfield
         this.stars = [];
         this._starCells = [];
+        this._starGlowTex = null;
 
         this.canvas = document.createElement("canvas");
         Object.assign(this.canvas.style, {
@@ -120,6 +123,15 @@ class WebGLFishCursor {
         direct.position.set(0, 5, 10);
         this.scene.add(direct);
 
+        // Extra shiny key light near the camera (helps specular highlights)
+        const starKey = new this.THREE.PointLight(0xffffff, 1.2, 80);
+        starKey.position.set(0, 0, 15);
+        this.scene.add(starKey);
+
+        // Tone mapping helps glows feel nicer
+        this.renderer.toneMapping = this.THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.15;
+
         this.raycaster = new this.THREE.Raycaster();
         this.mouseNdc = new this.THREE.Vector2(-10, -10);
         this.plane = new this.THREE.Plane(new this.THREE.Vector3(0, 0, 1), 0);
@@ -142,6 +154,7 @@ class WebGLFishCursor {
         this._initStars();
 
         this._lastT = performance.now();
+        this._collisionEnabledAt = performance.now() + 1000; // Enable collision after 1 second
         this.ready = true;
         this._loop();
     }
@@ -152,6 +165,22 @@ class WebGLFishCursor {
         const ang = (fieldOfView / 2) * Math.PI / 180;
         this._yLimit = this.camera.position.z * Math.tan(ang);
         this._xLimit = this._yLimit * (this.camera.aspect || 1);
+    }
+
+    _getStarGridSize() {
+        const n = Number(this.config.STAR_GRID_SIZE);
+        return Math.max(1, Math.min(4, Number.isFinite(n) ? Math.round(n) : 4));
+    }
+
+    setStarGrid(size) {
+        const n = Number(size);
+        if (!Number.isFinite(n)) return;
+
+        const clamped = Math.max(1, Math.min(4, Math.round(n)));
+        if (this.config.STAR_GRID_SIZE === clamped) return;
+
+        this.config.STAR_GRID_SIZE = clamped;
+        if (this.scene) this._initStars();
     }
 
     _createFishMesh(color) {
@@ -541,15 +570,15 @@ class WebGLFishCursor {
         let geometryCore;
 
         if (rnd < 0.33) {
-            const w = 0.1 + Math.random() * 0.3;
-            const h = 0.1 + Math.random() * 0.3;
-            const d = 0.1 + Math.random() * 0.3;
+            const w = 0.08 + Math.random() * 0.2;
+            const h = 0.08 + Math.random() * 0.2;
+            const d = 0.08 + Math.random() * 0.2;
             geometryCore = new this.THREE.BoxGeometry(w, h, d);
         } else if (rnd < 0.66) {
-            const ray = 0.1 + Math.random() * 0.2;
+            const ray = 0.08 + Math.random() * 0.15;
             geometryCore = new this.THREE.TetrahedronGeometry(ray);
         } else {
-            const ray = 0.05 + Math.random() * 0.3;
+            const ray = 0.05 + Math.random() * 0.2;
             const sh = 2 + Math.floor(Math.random() * 2);
             const sv = 2 + Math.floor(Math.random() * 2);
             geometryCore = new this.THREE.SphereGeometry(ray, sh, sv);
@@ -593,7 +622,7 @@ class WebGLFishCursor {
         particle.position.y = -this._yLimit + Math.random() * this._yLimit * 2;
         particle.position.z = (Math.random() - 0.5) * 2;
 
-        const s = 0.1 + Math.random();
+        const s = 0.15 + Math.random() * 0.6;
         particle.scale.set(s, s, s);
 
         this.flyingParticles.push(particle);
@@ -618,8 +647,8 @@ class WebGLFishCursor {
             particle.rotation.x += rotSpeed;
             particle.rotation.z += rotSpeed;
 
-            const baseSpeed = -0.2;
-            const speedMultiplier = 0.5 + (scaledSpeedX / 100) * 1.5;
+            const baseSpeed = -0.08;
+            const speedMultiplier = 0.4 + (scaledSpeedX / 100) * 0.8;
             particle.position.x += baseSpeed * speedMultiplier;
 
             const threshold = 1.2;
@@ -639,13 +668,15 @@ class WebGLFishCursor {
     }
 
     _getRandomStarCells(count) {
+        const n = this._getStarGridSize();
         const cells = [];
-        const { STAR_GRID_ROWS, STAR_GRID_COLS, STAR_MIN_COL } = this.config;
-        for (let row = 0; row < STAR_GRID_ROWS; row++) {
-            for (let col = STAR_MIN_COL; col < STAR_GRID_COLS; col++) {
-                cells.push({ row, col });
+
+        for (let row = 0; row < n; row++) {
+            for (let col = 0; col < n; col++) {
+                cells.push({ row, col, n });
             }
         }
+
         this._shuffleInPlace(cells);
         return cells.slice(0, Math.min(count, cells.length));
     }
@@ -655,14 +686,30 @@ class WebGLFishCursor {
     }
 
     _gridCellToWorld(row, col) {
+        const n = this._getStarGridSize();
+
         if (!this._xLimit || !this._yLimit) {
             return new this.THREE.Vector3(0, 0, 0);
         }
-        const { STAR_GRID_ROWS, STAR_GRID_COLS } = this.config;
-        const colWidth = (this._xLimit * 2) / STAR_GRID_COLS;
-        const rowHeight = (this._yLimit * 2) / STAR_GRID_ROWS;
-        const x = -this._xLimit + (col + 0.5) * colWidth;
-        const y = this._yLimit - (row + 0.5) * rowHeight;
+
+        const uiPx = this.config.STAR_UI_LEFT_PX || 0;
+        const worldPerPixel = (this._xLimit * 2) / Math.max(1, window.innerWidth);
+        const uiLeftWorldWidth = uiPx * worldPerPixel;
+
+        const padX = Math.min(0.6, (this._xLimit * 2 - uiLeftWorldWidth) * 0.08);
+        const padY = Math.min(0.6, this._yLimit * 0.12);
+
+        const left = -this._xLimit + uiLeftWorldWidth + padX;
+        const right = this._xLimit - padX;
+        const top = this._yLimit - padY;
+        const bottom = -this._yLimit + padY;
+
+        const u = (col + 0.5) / n;
+        const v = (row + 0.5) / n;
+
+        const x = left + (right - left) * u;
+        const y = top + (bottom - top) * v;
+
         return new this.THREE.Vector3(x, y, 0);
     }
 
@@ -672,67 +719,144 @@ class WebGLFishCursor {
         return new this.THREE.Color(hex);
     }
 
-    _createStarGeometry(points = 5, outerR = 1, innerR = 0.5, depth = 0.35) {
-        const shape = new this.THREE.Shape();
+    _getStarGlowTexture() {
+        if (this._starGlowTex) return this._starGlowTex;
+
+        const c = document.createElement('canvas');
+        c.width = 128;
+        c.height = 128;
+        const ctx = c.getContext('2d');
+
+        const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+        g.addColorStop(0.00, 'rgba(255,255,255,1.0)');
+        g.addColorStop(0.15, 'rgba(255,245,180,0.9)');
+        g.addColorStop(0.45, 'rgba(255,210,60,0.45)');
+        g.addColorStop(1.00, 'rgba(255,210,60,0.0)');
+
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, 128, 128);
+
+        const tex = new this.THREE.CanvasTexture(c);
+        tex.needsUpdate = true;
+        this._starGlowTex = tex;
+        return tex;
+    }
+
+    _createStarGeometry(points = 5, outerR = 1, innerR = 0.55, depth = 0.25) {
+        // Build classic star vertices (outer/inner alternating)
+        const verts = [];
         const step = Math.PI / points;
 
         for (let i = 0; i < points * 2; i++) {
-            const radius = (i % 2 === 0) ? outerR : innerR;
-            const angle = i * step - Math.PI / 2;
-            const x = Math.cos(angle) * radius;
-            const y = Math.sin(angle) * radius;
-            if (i === 0) {
-                shape.moveTo(x, y);
-            } else {
-                shape.lineTo(x, y);
-            }
+            const r = (i % 2 === 0) ? outerR : innerR;
+            const a = i * step - Math.PI / 2;
+            verts.push(new this.THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, 0));
         }
-        shape.closePath();
 
+        // Smooth the polygon into a rounded star outline
+        const tension = 0.55;               // higher = rounder / bouncier
+        const samples = 140;                // more = smoother outline
+        const curve = new this.THREE.CatmullRomCurve3(verts, true, "catmullrom", tension);
+        const pts2 = curve.getPoints(samples).map(p => new this.THREE.Vector2(p.x, p.y));
+        const shape = new this.THREE.Shape(pts2);
+
+        // Extrude with a chunky bevel for "puffy cartoon" look
         const geometry = new this.THREE.ExtrudeGeometry(shape, {
             depth,
+            steps: 1,
             bevelEnabled: true,
-            bevelThickness: depth * 0.35,
-            bevelSize: outerR * 0.18,
-            bevelSegments: 3,
-            curveSegments: 10
+            bevelThickness: depth * 0.8,
+            bevelSize: outerR * 0.22,
+            bevelSegments: 6,
+            curveSegments: 24
         });
 
         geometry.center();
+        geometry.computeVertexNormals();
         return geometry;
     }
 
     _createStarMesh() {
-        const size = this._randBetween(this.config.STAR_SIZE_MIN, this.config.STAR_SIZE_MAX);
-        const geometry = this._createStarGeometry(5, size, size * 0.55, size * 0.35);
+        const size = this.config.STAR_SIZE_MAX;
+        const geometry = this._createStarGeometry(5, size, size * 0.55, size * 0.28);
         const color = this._getRandomStarColor();
-        const material = new this.THREE.MeshPhysicalMaterial({
+
+        // Shiny core (Physical material gives a nicer "toy" highlight)
+        const coreMat = new this.THREE.MeshPhysicalMaterial({
             color,
-            emissive: color.clone(),
-            emissiveIntensity: 0.3,
+            emissive: color.clone().multiplyScalar(0.4),
+            emissiveIntensity: 0.6,
             roughness: 0.08,
             metalness: 0.0,
-            transmission: 0.9,
-            thickness: size * 0.6,
-            ior: 1.45,
             clearcoat: 1.0,
-            clearcoatRoughness: 0.1,
-            transparent: true
+            clearcoatRoughness: 0.05,
+            ior: 1.45
         });
-        const mesh = new this.THREE.Mesh(geometry, material);
 
-        mesh.rotation.set(
-            Math.random() * Math.PI,
-            Math.random() * Math.PI,
-            Math.random() * Math.PI
+        const core = new this.THREE.Mesh(geometry, coreMat);
+
+        // Soft outline
+        const outline = new this.THREE.Mesh(
+            geometry.clone(),
+            new this.THREE.MeshBasicMaterial({
+                color: 0x000000,
+                side: this.THREE.BackSide,
+                transparent: true,
+                opacity: 0.22
+            })
         );
+        outline.scale.setScalar(1.08);
 
-        return mesh;
+        // Glint
+        const glint = new this.THREE.Mesh(
+            new this.THREE.CircleGeometry(size * 0.22, 24),
+            new this.THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.75,
+                blending: this.THREE.AdditiveBlending,
+                depthWrite: false
+            })
+        );
+        glint.position.set(size * 0.18, size * 0.22, size * 0.35);
+        glint.rotation.z = Math.random() * Math.PI;
+
+        // Subtle glow behind the star (smaller, less intense)
+        const glow = new this.THREE.Sprite(new this.THREE.SpriteMaterial({
+            map: this._getStarGlowTexture(),
+            color: color.clone(),
+            transparent: true,
+            opacity: 0.25,
+            blending: this.THREE.AdditiveBlending,
+            depthWrite: false,
+            depthTest: false
+        }));
+        glow.scale.set(size * 3.0, size * 3.0, 1);
+        glow.position.set(0, 0, -0.25);
+
+        const group = new this.THREE.Group();
+        group.add(glow);
+        group.add(outline);
+        group.add(core);
+        group.add(glint);
+
+        group.rotation.set(0, 0, 0);
+
+        // Store base values for twinkle
+        group.userData.baseEmissive = coreMat.emissiveIntensity;
+        group.userData.glint = glint;
+        group.userData.glow = glow;
+
+        return group;
     }
 
     _initStars() {
         this._clearStars();
-        this._starCells = this._getRandomStarCells(this.config.STAR_COUNT);
+        // Reset collision delay when new stars spawn
+        this._collisionEnabledAt = performance.now() + 1000;
+        const gridSize = this._getStarGridSize();
+        const adjustedStarCount = Math.max(1, Math.ceil((gridSize * gridSize) / 2));
+        this._starCells = this._getRandomStarCells(adjustedStarCount);
         this._starCells.forEach((cell) => {
             const mesh = this._createStarMesh();
             const basePosition = this._gridCellToWorld(cell.row, cell.col);
@@ -766,7 +890,13 @@ class WebGLFishCursor {
 
     _updateStars(dt, time) {
         if (!this.stars.length) return;
-        this.stars.forEach((star) => {
+
+        // Collision detection radius (fish size + star size)
+        const collisionRadius = 0.7;
+
+        // Iterate backwards to safely remove stars during collision
+        for (let i = this.stars.length - 1; i >= 0; i--) {
+            const star = this.stars[i];
             const t = time * star.speed + star.phase;
             const xOffset = Math.cos(t) * star.radius;
             const yOffset = Math.sin(t * 1.3) * star.radius;
@@ -775,17 +905,70 @@ class WebGLFishCursor {
             star.mesh.position.set(
                 star.basePosition.x + xOffset,
                 star.basePosition.y + yOffset,
-                zOffset
+                0  // Same z-layer as fish
             );
 
-            star.mesh.rotation.x += star.spinSpeed * dt;
-            star.mesh.rotation.y += star.spinSpeed * 0.8 * dt;
+            star.mesh.rotation.z += star.spinSpeed * dt;
 
-            if (star.mesh.material && "emissiveIntensity" in star.mesh.material) {
-                const twinkle = 0.15 + 0.15 * Math.sin(time * 5 + star.phase);
-                star.mesh.material.emissiveIntensity = 0.3 + twinkle;
+            // Twinkle (Group-aware)
+            const twinkle = 0.15 + 0.15 * Math.sin(time * 5 + star.phase);
+
+            star.mesh.traverse((obj) => {
+                const mat = obj.material;
+                if (mat && mat.emissiveIntensity !== undefined) {
+                    mat.emissiveIntensity = star.mesh.userData.baseEmissive + twinkle;
+                }
+            });
+
+            if (star.mesh.userData.glint) {
+                star.mesh.userData.glint.material.opacity = 0.5 + twinkle;
+            }
+            if (star.mesh.userData.glow) {
+                star.mesh.userData.glow.material.opacity = 0.15 + twinkle * 0.5;
+            }
+
+            // Check collision with fish (after initial delay)
+            if (this.fish && performance.now() > this._collisionEnabledAt) {
+                const fishPos = this.fish.group.position;
+                const dist = fishPos.distanceTo(star.mesh.position);
+                if (dist < collisionRadius) {
+                    this._collectStar(i);
+                }
+            }
+        }
+    }
+
+    _collectStar(index) {
+        if (index < 0 || index >= this.stars.length) return;
+
+        const star = this.stars[index];
+
+        // Remove from scene and dispose resources
+        this.scene.remove(star.mesh);
+        star.mesh.traverse((child) => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) {
+                if (Array.isArray(child.material)) {
+                    child.material.forEach((material) => material.dispose());
+                } else {
+                    child.material.dispose();
+                }
             }
         });
+
+        // Remove from arrays
+        this.stars.splice(index, 1);
+        this._starCells.splice(index, 1);
+
+        // Call the callback if provided
+        if (typeof this.onStarCollected === 'function') {
+            this.onStarCollected();
+        }
+
+        // Regenerate stars if all have been collected
+        if (this.stars.length === 0) {
+            this._initStars();
+        }
     }
 
     _clearStars() {
