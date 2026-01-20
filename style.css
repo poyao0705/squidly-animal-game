@@ -41,3 +41,82 @@ body {
     pointer-events: none;
     opacity: 0.7;
 }
+
+/* Star Control Grid - Liquid Glass Buttons */
+.star-control-grid {
+    position: fixed;
+    top: 0;
+    left: 220px;
+    right: 0;
+    bottom: 0;
+    display: grid;
+    gap: 8px;
+    padding: 20px;
+    pointer-events: auto;
+    z-index: 9997;
+    box-sizing: border-box;
+}
+
+.star-control-cell {
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 16px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.star-control-cell::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg,
+            rgba(255, 255, 255, 0.1) 0%,
+            rgba(255, 255, 255, 0.05) 50%,
+            rgba(255, 255, 255, 0) 100%);
+    pointer-events: none;
+}
+
+.star-control-cell:hover {
+    background: rgba(255, 234, 0, 0.2);
+    border-color: rgba(255, 234, 0, 0.4);
+    box-shadow:
+        0 0 30px rgba(255, 234, 0, 0.3),
+        inset 0 0 20px rgba(255, 234, 0, 0.1);
+    transform: scale(1.02);
+}
+
+.star-control-cell:active {
+    background: rgba(255, 234, 0, 0.35);
+    transform: scale(0.98);
+}
+
+.star-control-cell .star-icon {
+    font-size: 32px;
+    opacity: 0.3;
+    transition: all 0.25s ease;
+    filter: drop-shadow(0 0 8px rgba(255, 234, 0, 0.5));
+}
+
+.star-control-cell:hover .star-icon {
+    opacity: 0.8;
+    transform: scale(1.2);
+}
+
+.star-control-cell.has-star {
+    background: rgba(255, 234, 0, 0.15);
+    border-color: rgba(255, 234, 0, 0.3);
+}
+
+.star-control-cell.has-star .star-icon {
+    opacity: 1;
+}

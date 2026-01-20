@@ -21,12 +21,17 @@ let lastController = null;
 const CONTROLLER_LOG_THROTTLE_MS = 1000;
 
 class WebGLFishCursor {
-    constructor({ configOverrides = {}, autoMouseEvents = false, onStarCollected = null } = {}) {
+    constructor({ configOverrides = {}, autoMouseEvents = false, onStarCollected = null, isMultiplayerMode = false } = {}) {
         this.THREE = null;
         this.ready = false;
 
-        // Callback when a star is collected
+        // Callback when a star is collected (receives starId in multiplayer mode)
         this.onStarCollected = onStarCollected;
+        
+        // Multiplayer mode flag
+        // - false (host-only): Random stars, host controls fish
+        // - true (multiplayer): Firebase-synced stars, only participant controls fish
+        this.isMultiplayerMode = isMultiplayerMode;
 
         // Single fish instance (created on init)
         this.fish = null;
@@ -180,7 +185,16 @@ class WebGLFishCursor {
         if (this.config.STAR_GRID_SIZE === clamped) return;
 
         this.config.STAR_GRID_SIZE = clamped;
-        if (this.scene) this._initStars();
+        
+        // In host-only mode, reinitialize stars with new grid
+        // In multiplayer mode, just update positions of existing stars
+        if (this.scene) {
+            if (this.isMultiplayerMode) {
+                this._updateStarGridPositions();
+            } else {
+                this._initStars();
+            }
+        }
     }
 
     _createFishMesh(color) {
@@ -381,21 +395,34 @@ class WebGLFishCursor {
         const participantPointer = this.inputManager.getPointer("participant");
         const hostPointer = this.inputManager.getPointer("host");
 
-        // Determine active pointer: participant has priority if recently active
+        // Determine active pointer based on mode
         let activePointer = null;
         let currentController = null;
-        if (participantPointer && (now - participantPointer.lastSeen) < PARTICIPANT_INACTIVE_MS) {
-            activePointer = participantPointer;
-            currentController = "participant";
-        } else if (hostPointer) {
-            activePointer = hostPointer;
-            currentController = "host";
+        
+        if (this.isMultiplayerMode) {
+            // Multiplayer mode: ONLY participant controls the fish
+            // Host cannot control the fish (host manages star spawning instead)
+            if (participantPointer && (now - participantPointer.lastSeen) < PARTICIPANT_INACTIVE_MS) {
+                activePointer = participantPointer;
+                currentController = "participant";
+            }
+            // If no active participant, fish stays in place (no host fallback)
+        } else {
+            // Host-only mode: Original behavior
+            // Participant has priority if recently active, otherwise host controls
+            if (participantPointer && (now - participantPointer.lastSeen) < PARTICIPANT_INACTIVE_MS) {
+                activePointer = participantPointer;
+                currentController = "participant";
+            } else if (hostPointer) {
+                activePointer = hostPointer;
+                currentController = "host";
+            }
         }
 
         // Log controller changes or periodically
         if (currentController !== lastController || (now - lastControllerLog > CONTROLLER_LOG_THROTTLE_MS)) {
             if (currentController !== lastController) {
-                console.log(`[Fish] Controller changed: ${lastController} -> ${currentController}`);
+                console.log(`[Fish] Controller changed: ${lastController} -> ${currentController} (multiplayer: ${this.isMultiplayerMode})`);
             }
             if (activePointer) {
                 console.log(`[Fish] Active: ${currentController}, x=${Math.round(activePointer.x)}, y=${Math.round(activePointer.y)}, lastSeen=${Math.round(now - activePointer.lastSeen)}ms ago`);
@@ -851,6 +878,14 @@ class WebGLFishCursor {
     }
 
     _initStars() {
+        // In multiplayer mode, don't auto-generate stars - wait for Firebase sync
+        if (this.isMultiplayerMode) {
+            this._clearStars();
+            console.log("[Fish] Multiplayer mode: Waiting for Firebase star sync");
+            return;
+        }
+        
+        // Host-only mode: Generate random stars (original behavior)
         this._clearStars();
         // Reset collision delay when new stars spawn
         this._collisionEnabledAt = performance.now() + 1000;
@@ -858,27 +893,97 @@ class WebGLFishCursor {
         const adjustedStarCount = Math.max(1, Math.ceil((gridSize * gridSize) / 2));
         this._starCells = this._getRandomStarCells(adjustedStarCount);
         this._starCells.forEach((cell) => {
-            const mesh = this._createStarMesh();
-            const basePosition = this._gridCellToWorld(cell.row, cell.col);
-            const radius = this._randBetween(0.1, this.config.STAR_FLOAT_RADIUS);
-            const speed = this._randBetween(this.config.STAR_FLOAT_SPEED_MIN, this.config.STAR_FLOAT_SPEED_MAX);
-            const depth = this._randBetween(0.2, this.config.STAR_DEPTH_RANGE);
-            const spinSpeed = this._randBetween(this.config.STAR_SPIN_SPEED_MIN, this.config.STAR_SPIN_SPEED_MAX);
-            const phase = Math.random() * Math.PI * 2;
-
-            mesh.position.copy(basePosition);
-            this.scene.add(mesh);
-            this.stars.push({
-                mesh,
-                cell,
-                basePosition,
-                radius,
-                speed,
-                depth,
-                spinSpeed,
-                phase
-            });
+            this._spawnStarAtCell(cell, `local_${cell.row}_${cell.col}`);
         });
+    }
+    
+    /**
+     * Spawn a single star at the given cell position.
+     * @param {Object} cell - { row, col } grid cell
+     * @param {string} id - Unique identifier for this star
+     */
+    _spawnStarAtCell(cell, id) {
+        const mesh = this._createStarMesh();
+        const basePosition = this._gridCellToWorld(cell.row, cell.col);
+        const radius = this._randBetween(0.1, this.config.STAR_FLOAT_RADIUS);
+        const speed = this._randBetween(this.config.STAR_FLOAT_SPEED_MIN, this.config.STAR_FLOAT_SPEED_MAX);
+        const depth = this._randBetween(0.2, this.config.STAR_DEPTH_RANGE);
+        const spinSpeed = this._randBetween(this.config.STAR_SPIN_SPEED_MIN, this.config.STAR_SPIN_SPEED_MAX);
+        const phase = Math.random() * Math.PI * 2;
+
+        mesh.position.copy(basePosition);
+        this.scene.add(mesh);
+        this.stars.push({
+            id,
+            mesh,
+            cell,
+            basePosition,
+            radius,
+            speed,
+            depth,
+            spinSpeed,
+            phase
+        });
+        this._starCells.push(cell);
+    }
+    
+    /**
+     * Sync stars from Firebase data (multiplayer mode).
+     * Creates/removes stars to match the Firebase state.
+     * @param {Array} firebaseStars - Array of { id, row, col } objects
+     */
+    syncStarsFromFirebase(firebaseStars) {
+        if (!this.isMultiplayerMode) return;
+        if (!Array.isArray(firebaseStars)) firebaseStars = [];
+        
+        console.log("[Fish] Syncing stars from Firebase:", firebaseStars.length, "stars");
+        
+        // Get current star IDs
+        const currentIds = new Set(this.stars.map(s => s.id));
+        const newIds = new Set(firebaseStars.map(s => s.id));
+        
+        // Remove stars that are no longer in Firebase
+        for (let i = this.stars.length - 1; i >= 0; i--) {
+            if (!newIds.has(this.stars[i].id)) {
+                this._removeStarByIndex(i);
+            }
+        }
+        
+        // Add stars that are new in Firebase
+        firebaseStars.forEach(starData => {
+            if (!currentIds.has(starData.id)) {
+                this._spawnStarAtCell({ row: starData.row, col: starData.col }, starData.id);
+            }
+        });
+        
+        // Reset collision delay when stars change
+        this._collisionEnabledAt = performance.now() + 500;
+    }
+    
+    /**
+     * Remove a star by its array index (internal use).
+     */
+    _removeStarByIndex(index) {
+        if (index < 0 || index >= this.stars.length) return;
+
+        const star = this.stars[index];
+
+        // Remove from scene and dispose resources
+        this.scene.remove(star.mesh);
+        star.mesh.traverse((child) => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) {
+                if (Array.isArray(child.material)) {
+                    child.material.forEach((material) => material.dispose());
+                } else {
+                    child.material.dispose();
+                }
+            }
+        });
+
+        // Remove from arrays
+        this.stars.splice(index, 1);
+        this._starCells.splice(index, 1);
     }
 
     _updateStarGridPositions() {
@@ -942,6 +1047,7 @@ class WebGLFishCursor {
         if (index < 0 || index >= this.stars.length) return;
 
         const star = this.stars[index];
+        const starId = star.id;
 
         // Remove from scene and dispose resources
         this.scene.remove(star.mesh);
@@ -960,13 +1066,14 @@ class WebGLFishCursor {
         this.stars.splice(index, 1);
         this._starCells.splice(index, 1);
 
-        // Call the callback if provided
+        // Call the callback if provided (pass star ID for multiplayer Firebase sync)
         if (typeof this.onStarCollected === 'function') {
-            this.onStarCollected();
+            this.onStarCollected(starId);
         }
 
-        // Regenerate stars if all have been collected
-        if (this.stars.length === 0) {
+        // In host-only mode, regenerate stars if all have been collected
+        // In multiplayer mode, let Firebase/host handle star regeneration
+        if (!this.isMultiplayerMode && this.stars.length === 0) {
             this._initStars();
         }
     }

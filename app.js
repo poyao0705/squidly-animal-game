@@ -3,9 +3,9 @@
  *
  * Manages interactive animal-themed cursor effects.
  * 
- * Fish control priority:
- * - Participant controls fish when active
- * - Host controls fish when participant is inactive (handled in fish-cursor.js)
+ * Dual-mode operation:
+ * - Host-only mode: Random star generation, host controls fish (original behavior)
+ * - Multiplayer mode: Host spawns stars via grid UI, only participant controls fish
  */
 
 import { WebGLFishCursor } from "./index.js";
@@ -13,6 +13,14 @@ import { WebGLFishCursor } from "./index.js";
 const ANIMAL_TYPE_METHODS = {
   "animal-game/fish": "_switchToFish",
 };
+
+// Detect session info for mode switching
+const hasSessionInfo = typeof session_info !== "undefined" && session_info != null;
+const isHost = hasSessionInfo ? session_info?.user === "host" : true;
+const participantActive = hasSessionInfo ? session_info?.participantActive === true : false;
+const isMultiplayerMode = participantActive;
+
+console.log("[AnimalGame] Mode detection:", { hasSessionInfo, isHost, participantActive, isMultiplayerMode });
 
 // Initialize default animal type
 firebaseSet("animal-game/currentType", "animal-game/fish");
@@ -22,6 +30,11 @@ firebaseSet("animal-game/gridSize", 4);
 
 // Initialize score to 0 on startup
 firebaseSet("animal-game/score", 0);
+
+// Initialize stars array in Firebase (only host initializes in multiplayer mode)
+if (isMultiplayerMode && isHost) {
+  firebaseSet("animal-game/stars", []);
+}
 
 // Debug logging (throttled to avoid spam)
 let lastHostLog = 0;
@@ -36,6 +49,15 @@ window.animalGame = {
   gridSize: 4,
   score: 0,
   _scoreEl: null,
+  _starGridEl: null,
+  _starCells: [],
+  
+  // Mode flags
+  isHost: isHost,
+  isMultiplayerMode: isMultiplayerMode,
+  
+  // Current stars in Firebase (multiplayer mode)
+  firebaseStars: [],
 
   incrementScore: function () {
     this.score++;
@@ -88,6 +110,145 @@ window.animalGame = {
     document.body.appendChild(container);
   },
 
+  /**
+   * Create the star control grid UI for host in multiplayer mode.
+   * Each cell can be clicked to spawn a star at that position.
+   */
+  _createStarControlGrid: function () {
+    // Only create for host in multiplayer mode
+    if (!this.isMultiplayerMode || !this.isHost) return;
+    
+    // Remove existing grid if any
+    this._destroyStarControlGrid();
+
+    const grid = document.createElement("div");
+    grid.className = "star-control-grid";
+    grid.id = "star-control-grid";
+    grid.style.gridTemplateColumns = `repeat(${this.gridSize}, 1fr)`;
+    grid.style.gridTemplateRows = `repeat(${this.gridSize}, 1fr)`;
+
+    this._starCells = [];
+
+    for (let row = 0; row < this.gridSize; row++) {
+      for (let col = 0; col < this.gridSize; col++) {
+        const cell = document.createElement("div");
+        cell.className = "star-control-cell";
+        cell.dataset.row = row;
+        cell.dataset.col = col;
+
+        const starIcon = document.createElement("span");
+        starIcon.className = "star-icon";
+        starIcon.textContent = "\u2B50";
+        cell.appendChild(starIcon);
+
+        cell.addEventListener("click", () => {
+          this._onStarCellClick(row, col, cell);
+        });
+
+        grid.appendChild(cell);
+        this._starCells.push({ row, col, element: cell });
+      }
+    }
+
+    document.body.appendChild(grid);
+    this._starGridEl = grid;
+    
+    // Update cell states based on current stars
+    this._updateStarCellStates();
+    
+    console.log("[AnimalGame] Star control grid created for host");
+  },
+
+  _destroyStarControlGrid: function () {
+    if (this._starGridEl) {
+      this._starGridEl.remove();
+      this._starGridEl = null;
+    }
+    this._starCells = [];
+  },
+
+  _updateStarControlGrid: function () {
+    if (!this.isMultiplayerMode || !this.isHost) return;
+    this._createStarControlGrid();
+  },
+
+  /**
+   * Update visual state of star cells based on which cells have stars.
+   */
+  _updateStarCellStates: function () {
+    if (!this._starCells.length) return;
+
+    this._starCells.forEach(({ row, col, element }) => {
+      const hasStar = this.firebaseStars.some(
+        (s) => s.row === row && s.col === col
+      );
+      if (hasStar) {
+        element.classList.add("has-star");
+      } else {
+        element.classList.remove("has-star");
+      }
+    });
+  },
+
+  /**
+   * Handle click on a star cell - toggle star at that position.
+   */
+  _onStarCellClick: function (row, col, cellElement) {
+    // Check if star already exists at this position
+    const existingIndex = this.firebaseStars.findIndex(
+      (s) => s.row === row && s.col === col
+    );
+
+    if (existingIndex >= 0) {
+      // Remove existing star
+      const newStars = [...this.firebaseStars];
+      newStars.splice(existingIndex, 1);
+      firebaseSet("animal-game/stars", newStars);
+      console.log(`[AnimalGame] Removed star at (${row}, ${col})`);
+    } else {
+      // Add new star
+      const newStar = {
+        id: `star_${row}_${col}_${Date.now()}`,
+        row: row,
+        col: col,
+      };
+      const newStars = [...this.firebaseStars, newStar];
+      firebaseSet("animal-game/stars", newStars);
+      console.log(`[AnimalGame] Added star at (${row}, ${col})`);
+    }
+  },
+
+  /**
+   * Called when Firebase stars data changes.
+   */
+  _onFirebaseStarsUpdate: function (stars) {
+    this.firebaseStars = Array.isArray(stars) ? stars : [];
+    console.log("[AnimalGame] Firebase stars updated:", this.firebaseStars.length, "stars");
+    
+    // Update cell visual states
+    this._updateStarCellStates();
+    
+    // Sync stars to the cursor (in multiplayer mode)
+    if (this.isMultiplayerMode && this.currentCursor) {
+      this.currentCursor.syncStarsFromFirebase(this.firebaseStars);
+    }
+  },
+
+  /**
+   * Called when a star is collected (by collision with fish).
+   * In multiplayer mode, update Firebase. In host-only mode, just increment score.
+   */
+  onStarCollected: function (starId) {
+    this.incrementScore();
+    
+    if (this.isMultiplayerMode && starId) {
+      // Remove the collected star from Firebase
+      const newStars = this.firebaseStars.filter((s) => s.id !== starId);
+      firebaseSet("animal-game/stars", newStars);
+      console.log(`[AnimalGame] Star collected and removed from Firebase: ${starId}`);
+    }
+  },
+
   setAppType: function (type) {
     if (this.currentType !== type) {
       this.currentType = type;
@@ -112,11 +273,17 @@ window.animalGame = {
       const self = this;
       this.currentCursor = new WebGLFishCursor({
         autoMouseEvents: false,
-        onStarCollected: function () {
-          self.incrementScore();
+        isMultiplayerMode: this.isMultiplayerMode,
+        onStarCollected: function (starId) {
+          self.onStarCollected(starId);
         },
       });
       this.currentCursor.setStarGrid(this.gridSize);
+      
+      // In multiplayer mode, sync initial stars from Firebase
+      if (this.isMultiplayerMode) {
+        this.currentCursor.syncStarsFromFirebase(this.firebaseStars);
+      }
 
       this.currentType = "animal-game/fish";
       document.body.setAttribute("app-type", "animal-game/fish");
@@ -134,7 +301,7 @@ window.animalGame = {
 
   /**
    * Update pointer position for host or participant.
-   * Both are always tracked; fish-cursor.js decides which one controls the fish.
+   * In multiplayer mode, host pointer is ignored for fish control.
    */
   updatePointerPosition: function (x, y, color = null, isParticipant = false) {
     if (!this.currentCursor || !this.currentCursor.inputManager) return;
@@ -150,7 +317,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Initialize with fish
   window.animalGame._switchToFish();
 
-  // Local mouse for direct control (host fallback when participant not active)
+  // Local mouse for direct control
+  // In host-only mode: host controls fish
+  // In multiplayer mode: host mouse is still tracked but fish ignores it
   document.addEventListener("mousemove", (e) => {
     window.animalGame.updatePointerPosition(e.clientX, e.clientY, null, false);
   });
@@ -175,6 +344,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (window.animalGame.currentCursor) {
         window.animalGame.currentCursor.setStarGrid(size);
       }
+      // Update star control grid when grid size changes
+      window.animalGame._updateStarControlGrid();
     }
   });
 
@@ -190,6 +361,18 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // In multiplayer mode, sync stars with Firebase
+  if (isMultiplayerMode) {
+    firebaseOnValue("animal-game/stars", (value) => {
+      window.animalGame._onFirebaseStarsUpdate(value);
+    });
+    
+    // Create star control grid for host
+    if (isHost) {
+      window.animalGame._createStarControlGrid();
+    }
+  }
+
   // All cursor input comes from main Squidly app via addCursorListener
   // data.user can be: "host-eyes", "host-mouse", "participant-eyes", "participant-mouse"
   addCursorListener((data) => {
@@ -197,20 +380,6 @@ document.addEventListener("DOMContentLoaded", () => {
     console.log(`[CursorListener] user=${data.user}, isParticipant=${isParticipant}, x=${Math.round(data.x)}, y=${Math.round(data.y)}, source=${data.source}`);
     window.animalGame.updatePointerPosition(data.x, data.y, null, isParticipant);
   });
-
-  // // Grid icon for switching
-  // setIcon(
-  //   1,
-  //   0,
-  //   {
-  //     symbol: "change",
-  //     displayValue: "Fish Mode",
-  //     type: "action",
-  //   },
-  //   () => {
-  //     console.log("Fish mode active");
-  //   }
-  // );
 
   // Grid size up icon
   setIcon(
@@ -245,14 +414,4 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
   );
-
-  // const hasSessionInfo = typeof session_info !== "undefined" && session_info != null;
-  // console.log("session_info", hasSessionInfo ? session_info : null);
-  // const isHostUser = hasSessionInfo ? session_info?.user === "host" : false;
-  // const participantActive = hasSessionInfo ? session_info?.participantActive === true : false;
-  // if (isHostUser && !participantActive) {
-  //   placeStars();
-  // } else {
-  //   console.log("Skipping stars", { isHostUser, participantActive });
-  // }
 });
