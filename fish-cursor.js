@@ -12,8 +12,8 @@ import InputManager from './input-manager.js';
 
 const threeCdn = "https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.module.js";
 
-// Timeout (ms) after which participant is considered inactive and host takes over
-const PARTICIPANT_INACTIVE_MS = 2000;
+// Timeout (ms) after which a pointer is considered inactive
+const INACTIVE_TIMEOUT_MS = 2000;
 
 // Debug logging throttle
 let lastControllerLog = 0;
@@ -21,17 +21,23 @@ let lastController = null;
 const CONTROLLER_LOG_THROTTLE_MS = 1000;
 
 class WebGLFishCursor {
-    constructor({ configOverrides = {}, autoMouseEvents = false, onStarCollected = null, isMultiplayerMode = false } = {}) {
+    constructor({ configOverrides = {}, autoMouseEvents = false, onStarCollected = null, isMultiplayerMode = false, isHost = true } = {}) {
         this.THREE = null;
         this.ready = false;
 
         // Callback when a star is collected (receives starId in multiplayer mode)
         this.onStarCollected = onStarCollected;
-        
+
         // Multiplayer mode flag
-        // - false (host-only): Random stars, host controls fish
+        // - false (single-player): Random stars, host controls fish
         // - true (multiplayer): Firebase-synced stars, only participant controls fish
         this.isMultiplayerMode = isMultiplayerMode;
+
+        // Whether this client is the host (used for collision authority)
+        this.isHost = isHost;
+
+        // Track if this client is currently controlling the fish (for collision authority)
+        this._isControllingFish = false;
 
         // Single fish instance (created on init)
         this.fish = null;
@@ -79,13 +85,14 @@ class WebGLFishCursor {
         this.flyingParticles = [];
         this.waitingParticles = [];
         this._particleSpawnTimer = 0;
-        this._xLimit = 0;
-        this._yLimit = 0;
+        this._viewBoundsX = 0;
+        this._viewBoundsY = 0;
 
         // Starfield
         this.stars = [];
         this._starCells = [];
         this._starGlowTex = null;
+        this._pendingFirebaseStars = null; // Queue for stars received before init completes
 
         this.canvas = document.createElement("canvas");
         Object.assign(this.canvas.style, {
@@ -104,6 +111,16 @@ class WebGLFishCursor {
         this._autoMouse = autoMouseEvents;
 
         this._init().catch(err => console.error("[Fish] failed to init:", err));
+    }
+
+    /**
+     * Return val if it's a valid finite number, otherwise return fallback.
+     * @param {*} val - Value to check
+     * @param {number} fallback - Fallback value if val is invalid
+     * @returns {number}
+     */
+    _safeNumber(val, fallback = 0) {
+        return (typeof val === 'number' && isFinite(val)) ? val : fallback;
     }
 
     async _init() {
@@ -161,6 +178,14 @@ class WebGLFishCursor {
         this._lastT = performance.now();
         this._collisionEnabledAt = performance.now() + 1000; // Enable collision after 1 second
         this.ready = true;
+
+        // Process any pending Firebase stars that arrived before init completed
+        if (this._pendingFirebaseStars !== null) {
+            console.log("[Fish] Processing", this._pendingFirebaseStars.length, "pending Firebase stars");
+            this.syncStarsFromFirebase(this._pendingFirebaseStars);
+            this._pendingFirebaseStars = null;
+        }
+
         this._loop();
     }
 
@@ -168,8 +193,8 @@ class WebGLFishCursor {
         if (!this.camera) return;
         const fieldOfView = 45;
         const ang = (fieldOfView / 2) * Math.PI / 180;
-        this._yLimit = this.camera.position.z * Math.tan(ang);
-        this._xLimit = this._yLimit * (this.camera.aspect || 1);
+        this._viewBoundsY = this.camera.position.z * Math.tan(ang);
+        this._viewBoundsX = this._viewBoundsY * (this.camera.aspect || 1);
     }
 
     _getStarGridSize() {
@@ -185,8 +210,8 @@ class WebGLFishCursor {
         if (this.config.STAR_GRID_SIZE === clamped) return;
 
         this.config.STAR_GRID_SIZE = clamped;
-        
-        // In host-only mode, reinitialize stars with new grid
+
+        // In single-player mode, reinitialize stars with new grid
         // In multiplayer mode, just update positions of existing stars
         if (this.scene) {
             if (this.isMultiplayerMode) {
@@ -197,7 +222,18 @@ class WebGLFishCursor {
         }
     }
 
-    _createFishMesh(color) {
+    /**
+     * Update multiplayer mode without recreating the cursor.
+     * @param {boolean} isMultiplayer - Whether multiplayer mode is enabled
+     */
+    setMultiplayerMode(isMultiplayer) {
+        if (this.isMultiplayerMode === isMultiplayer) return;
+
+        this.isMultiplayerMode = isMultiplayer;
+        console.log(`[Fish] Multiplayer mode set to: ${isMultiplayer}`);
+    }
+
+    _createFishMesh() {
         const group = new this.THREE.Group();
         const halfPI = Math.PI / 2;
 
@@ -358,7 +394,7 @@ class WebGLFishCursor {
         const velocity = new this.THREE.Vector3();
         const prevPos = group.position.clone();
         const speed = { x: 0, y: 0 };
-        const angleFin = 0;
+        const finPhase = 0;
 
         return {
             group,
@@ -378,7 +414,7 @@ class WebGLFishCursor {
             velocity,
             prevPos,
             speed,
-            angleFin
+            finPhase
         };
     }
 
@@ -398,25 +434,35 @@ class WebGLFishCursor {
         // Determine active pointer based on mode
         let activePointer = null;
         let currentController = null;
-        
+
         if (this.isMultiplayerMode) {
             // Multiplayer mode: ONLY participant controls the fish
             // Host cannot control the fish (host manages star spawning instead)
-            if (participantPointer && (now - participantPointer.lastSeen) < PARTICIPANT_INACTIVE_MS) {
+            if (participantPointer && (now - participantPointer.lastSeen) < INACTIVE_TIMEOUT_MS) {
                 activePointer = participantPointer;
                 currentController = "participant";
             }
             // If no active participant, fish stays in place (no host fallback)
         } else {
-            // Host-only mode: Original behavior
+            // Single-player mode: Original behavior
             // Participant has priority if recently active, otherwise host controls
-            if (participantPointer && (now - participantPointer.lastSeen) < PARTICIPANT_INACTIVE_MS) {
+            if (participantPointer && (now - participantPointer.lastSeen) < INACTIVE_TIMEOUT_MS) {
                 activePointer = participantPointer;
                 currentController = "participant";
             } else if (hostPointer) {
                 activePointer = hostPointer;
                 currentController = "host";
             }
+        }
+
+        // Determine if THIS client is controlling the fish (for collision authority)
+        // In multiplayer: only participant handles collisions
+        // In single-player: whoever is controlling handles collisions
+        if (this.isMultiplayerMode) {
+            this._isControllingFish = !this.isHost && currentController === "participant";
+        } else {
+            this._isControllingFish = (this.isHost && currentController === "host") ||
+                (!this.isHost && currentController === "participant");
         }
 
         // Log controller changes or periodically
@@ -442,14 +488,12 @@ class WebGLFishCursor {
         // Update the single fish with the active pointer's position
         if (activePointer) {
             const fish = this.fish;
-            const pointer = activePointer;
-
-            fish.pointerX = (typeof pointer.x === 'number' && !isNaN(pointer.x)) ? pointer.x : fish.pointerX;
-            fish.pointerY = (typeof pointer.y === 'number' && !isNaN(pointer.y)) ? pointer.y : fish.pointerY;
+            fish.pointerX = this._safeNumber(activePointer.x, fish.pointerX);
+            fish.pointerY = this._safeNumber(activePointer.y, fish.pointerY);
 
             const w = window.innerWidth;
             const h = window.innerHeight;
-            this.mouseNdc.set((pointer.x / w) * 2 - 1, -(pointer.y / h) * 2 + 1);
+            this.mouseNdc.set((activePointer.x / w) * 2 - 1, -(activePointer.y / h) * 2 + 1);
             this.raycaster.setFromCamera(this.mouseNdc, this.camera);
             if (this.raycaster.ray.intersectPlane(this.plane, this.planeHit)) {
                 fish.targetPos.copy(this.planeHit);
@@ -487,67 +531,42 @@ class WebGLFishCursor {
         const windowHalfX = w / 2;
         const windowHalfY = h / 2;
 
-        const pointerX = (typeof fish.pointerX === 'number' && !isNaN(fish.pointerX) && isFinite(fish.pointerX))
-            ? fish.pointerX
-            : windowHalfX;
-        const pointerY = (typeof fish.pointerY === 'number' && !isNaN(fish.pointerY) && isFinite(fish.pointerY))
-            ? fish.pointerY
-            : windowHalfY;
+        const pointerX = this._safeNumber(fish.pointerX, windowHalfX);
+        const pointerY = this._safeNumber(fish.pointerY, windowHalfY);
 
-        fish.speed.x = Math.max(0, Math.min(100, (pointerX / w) * 100));
-        fish.speed.y = (pointerY - windowHalfY) / 10;
-
-        if (!isFinite(fish.speed.x)) fish.speed.x = 0;
-        if (!isFinite(fish.speed.y)) fish.speed.y = 0;
+        fish.speed.x = this._safeNumber(Math.max(0, Math.min(100, (pointerX / w) * 100)), 0);
+        fish.speed.y = this._safeNumber((pointerY - windowHalfY) / 10, 0);
 
         fish.velocity.copy(group.position).sub(fish.prevPos);
         fish.prevPos.copy(group.position);
 
-        const speedX = (isFinite(fish.speed.x) && !isNaN(fish.speed.x))
-            ? Math.max(0, Math.min(fish.speed.x, 100))
-            : 0;
-        const speedY = (isFinite(fish.speed.y) && !isNaN(fish.speed.y))
-            ? fish.speed.y
-            : 0;
-        let s2 = speedX / 100;
-        let s3 = speedX / 300;
+        const speedX = Math.max(0, Math.min(this._safeNumber(fish.speed.x, 0), 100));
+        const speedY = this._safeNumber(fish.speed.y, 0);
+        const speedNormalized = this._safeNumber(speedX / 100, 0);
+        const speedScale = this._safeNumber(speedX / 300, 0);
 
-        if (!isFinite(s2) || isNaN(s2)) s2 = 0;
-        if (!isFinite(s3) || isNaN(s3)) s3 = 0;
-
-        const targetX = (fish.targetPos && isFinite(fish.targetPos.x))
-            ? fish.targetPos.x
-            : (isFinite(group.position.x) ? group.position.x : 0);
-        const currentX = isFinite(group.position.x) ? group.position.x : 0;
+        const targetX = this._safeNumber(fish.targetPos?.x, this._safeNumber(group.position.x, 0));
+        const currentX = this._safeNumber(group.position.x, 0);
         const newX = currentX + (targetX - currentX) / SMOOTHING;
-        if (isFinite(newX)) group.position.x = newX;
+        group.position.x = this._safeNumber(newX, currentX);
 
-        const currentY = isFinite(group.position.y) ? group.position.y : 0;
+        const currentY = this._safeNumber(group.position.y, 0);
         const newY = currentY + ((-speedY * 0.15) - currentY) / SMOOTHING;
-        if (isFinite(newY)) group.position.y = newY;
+        group.position.y = this._safeNumber(newY, currentY);
 
-        const swingZ = -speedY / 50;
-        if (isFinite(swingZ)) {
-            const currentRotZ = isFinite(group.rotation.z) ? group.rotation.z : 0;
-            const currentRotX = isFinite(group.rotation.x) ? group.rotation.x : 0;
-            const currentRotY = isFinite(group.rotation.y) ? group.rotation.y : 0;
+        const swingZ = this._safeNumber(-speedY / 50, 0);
+        const currentRotZ = this._safeNumber(group.rotation.z, 0);
+        const currentRotX = this._safeNumber(group.rotation.x, 0);
+        const currentRotY = this._safeNumber(group.rotation.y, 0);
 
-            const newRotZ = currentRotZ + (swingZ - currentRotZ) / SMOOTHING;
-            const newRotX = currentRotX + (swingZ - currentRotX) / SMOOTHING;
-            const newRotY = currentRotY + (swingZ - currentRotY) / SMOOTHING;
+        group.rotation.z = this._safeNumber(currentRotZ + (swingZ - currentRotZ) / SMOOTHING, currentRotZ);
+        group.rotation.x = this._safeNumber(currentRotX + (swingZ - currentRotX) / SMOOTHING, currentRotX);
+        group.rotation.y = this._safeNumber(currentRotY + (swingZ - currentRotY) / SMOOTHING, currentRotY);
 
-            if (isFinite(newRotZ)) group.rotation.z = newRotZ;
-            if (isFinite(newRotX)) group.rotation.x = newRotX;
-            if (isFinite(newRotY)) group.rotation.y = newRotY;
-        }
-
-        if (typeof fish.angleFin !== 'number' || !isFinite(fish.angleFin)) {
-            fish.angleFin = 0;
-        }
-        fish.angleFin += s2;
-        if (!isFinite(fish.angleFin)) fish.angleFin = 0;
-        const backTailCycle = Math.cos(fish.angleFin);
-        const sideFinsCycle = Math.sin(fish.angleFin / 5);
+        fish.finPhase = this._safeNumber(fish.finPhase, 0) + speedNormalized;
+        fish.finPhase = this._safeNumber(fish.finPhase, 0);
+        const backTailCycle = Math.cos(fish.finPhase);
+        const sideFinsCycle = Math.sin(fish.finPhase / 5);
 
         tailPivot.rotation.y = backTailCycle * 0.5;
         topFinPivot.rotation.x = sideFinsCycle * 0.5;
@@ -555,23 +574,19 @@ class WebGLFishCursor {
         sideRightFish.rotation.x = halfPI + sideFinsCycle * 0.2;
         sideLeftFish.rotation.x = halfPI + sideFinsCycle * 0.2;
 
-        const rvalue = (this.config.COLOR_SLOW.r + (this.config.COLOR_FAST.r - this.config.COLOR_SLOW.r) * s2) / 255;
-        const gvalue = (this.config.COLOR_SLOW.g + (this.config.COLOR_FAST.g - this.config.COLOR_SLOW.g) * s2) / 255;
-        const bvalue = (this.config.COLOR_SLOW.b + (this.config.COLOR_FAST.b - this.config.COLOR_SLOW.b) * s2) / 255;
+        const r = (this.config.COLOR_SLOW.r + (this.config.COLOR_FAST.r - this.config.COLOR_SLOW.r) * speedNormalized) / 255;
+        const g = (this.config.COLOR_SLOW.g + (this.config.COLOR_FAST.g - this.config.COLOR_SLOW.g) * speedNormalized) / 255;
+        const b = (this.config.COLOR_SLOW.b + (this.config.COLOR_FAST.b - this.config.COLOR_SLOW.b) * speedNormalized) / 255;
 
-        if (isFinite(rvalue) && isFinite(gvalue) && isFinite(bvalue)) {
-            if (materials.body) {
-                materials.body.color.setRGB(rvalue, gvalue, bvalue);
-            }
-            if (materials.lips) {
-                materials.lips.color.setRGB(rvalue, gvalue, bvalue);
-            }
+        if (isFinite(r) && isFinite(g) && isFinite(b)) {
+            if (materials.body) materials.body.color.setRGB(r, g, b);
+            if (materials.lips) materials.lips.color.setRGB(r, g, b);
         }
 
-        const baseScale = (this.config.SCALE && isFinite(this.config.SCALE)) ? this.config.SCALE / 100 : 0.008;
-        const scaleX = baseScale * (1 + (isFinite(s3) ? s3 : 0));
-        const scaleY = baseScale * (1 - (isFinite(s3) ? s3 : 0));
-        const scaleZ = baseScale * (1 - (isFinite(s3) ? s3 : 0));
+        const baseScale = this._safeNumber(this.config.SCALE, 0.8) / 100;
+        const scaleX = baseScale * (1 + speedScale);
+        const scaleY = baseScale * (1 - speedScale);
+        const scaleZ = baseScale * (1 - speedScale);
 
         if (isFinite(scaleX) && isFinite(scaleY) && isFinite(scaleZ)) {
             group.scale.set(scaleX, scaleY, scaleZ);
@@ -645,8 +660,8 @@ class WebGLFishCursor {
     _spawnParticle() {
         const particle = this._getParticle();
 
-        particle.position.x = this._xLimit;
-        particle.position.y = -this._yLimit + Math.random() * this._yLimit * 2;
+        particle.position.x = this._viewBoundsX;
+        particle.position.y = -this._viewBoundsY + Math.random() * this._viewBoundsY * 2;
         particle.position.z = (Math.random() - 0.5) * 2;
 
         const s = 0.15 + Math.random() * 0.6;
@@ -657,14 +672,7 @@ class WebGLFishCursor {
     }
 
     _updateParticles(dt) {
-        let speedX = 0;
-        let speedY = 0;
-        if (this.fish) {
-            speedX = (isFinite(this.fish.speed.x) && !isNaN(this.fish.speed.x)) ? this.fish.speed.x : 0;
-            speedY = (isFinite(this.fish.speed.y) && !isNaN(this.fish.speed.y)) ? this.fish.speed.y : 0;
-        }
-
-        const scaledSpeedX = speedX;
+        const speedX = this.fish ? this._safeNumber(this.fish.speed.x, 0) : 0;
 
         for (let i = this.flyingParticles.length - 1; i >= 0; i--) {
             const particle = this.flyingParticles[i];
@@ -675,11 +683,11 @@ class WebGLFishCursor {
             particle.rotation.z += rotSpeed;
 
             const baseSpeed = -0.08;
-            const speedMultiplier = 0.4 + (scaledSpeedX / 100) * 0.8;
+            const speedMultiplier = 0.4 + (speedX / 100) * 0.8;
             particle.position.x += baseSpeed * speedMultiplier;
 
             const threshold = 1.2;
-            if (particle.position.x < -this._xLimit - threshold) {
+            if (particle.position.x < -this._viewBoundsX - threshold) {
                 this.scene.remove(particle);
                 this.waitingParticles.push(this.flyingParticles.splice(i, 1)[0]);
             }
@@ -715,21 +723,21 @@ class WebGLFishCursor {
     _gridCellToWorld(row, col) {
         const n = this._getStarGridSize();
 
-        if (!this._xLimit || !this._yLimit) {
+        if (!this._viewBoundsX || !this._viewBoundsY) {
             return new this.THREE.Vector3(0, 0, 0);
         }
 
         const uiPx = this.config.STAR_UI_LEFT_PX || 0;
-        const worldPerPixel = (this._xLimit * 2) / Math.max(1, window.innerWidth);
+        const worldPerPixel = (this._viewBoundsX * 2) / Math.max(1, window.innerWidth);
         const uiLeftWorldWidth = uiPx * worldPerPixel;
 
-        const padX = Math.min(0.6, (this._xLimit * 2 - uiLeftWorldWidth) * 0.08);
-        const padY = Math.min(0.6, this._yLimit * 0.12);
+        const padX = Math.min(0.6, (this._viewBoundsX * 2 - uiLeftWorldWidth) * 0.08);
+        const padY = Math.min(0.6, this._viewBoundsY * 0.12);
 
-        const left = -this._xLimit + uiLeftWorldWidth + padX;
-        const right = this._xLimit - padX;
-        const top = this._yLimit - padY;
-        const bottom = -this._yLimit + padY;
+        const left = -this._viewBoundsX + uiLeftWorldWidth + padX;
+        const right = this._viewBoundsX - padX;
+        const top = this._viewBoundsY - padY;
+        const bottom = -this._viewBoundsY + padY;
 
         const u = (col + 0.5) / n;
         const v = (row + 0.5) / n;
@@ -878,25 +886,12 @@ class WebGLFishCursor {
     }
 
     _initStars() {
-        // In multiplayer mode, don't auto-generate stars - wait for Firebase sync
-        if (this.isMultiplayerMode) {
-            this._clearStars();
-            console.log("[Fish] Multiplayer mode: Waiting for Firebase star sync");
-            return;
-        }
-        
-        // Host-only mode: Generate random stars (original behavior)
+        // Clear any existing stars and wait for Firebase sync
+        // Stars are always managed via Firebase for consistent sync between host and participant
         this._clearStars();
-        // Reset collision delay when new stars spawn
-        this._collisionEnabledAt = performance.now() + 1000;
-        const gridSize = this._getStarGridSize();
-        const adjustedStarCount = Math.max(1, Math.ceil((gridSize * gridSize) / 2));
-        this._starCells = this._getRandomStarCells(adjustedStarCount);
-        this._starCells.forEach((cell) => {
-            this._spawnStarAtCell(cell, `local_${cell.row}_${cell.col}`);
-        });
+        console.log("[Fish] Waiting for Firebase star sync");
     }
-    
+
     /**
      * Spawn a single star at the given cell position.
      * @param {Object} cell - { row, col } grid cell
@@ -926,40 +921,46 @@ class WebGLFishCursor {
         });
         this._starCells.push(cell);
     }
-    
+
     /**
-     * Sync stars from Firebase data (multiplayer mode).
+     * Sync stars from Firebase data.
      * Creates/removes stars to match the Firebase state.
      * @param {Array} firebaseStars - Array of { id, row, col } objects
      */
     syncStarsFromFirebase(firebaseStars) {
-        if (!this.isMultiplayerMode) return;
         if (!Array.isArray(firebaseStars)) firebaseStars = [];
-        
+
+        // If not ready yet, queue the stars for later
+        if (!this.ready || !this.THREE) {
+            console.log("[Fish] Not ready yet, queuing", firebaseStars.length, "stars for later sync");
+            this._pendingFirebaseStars = firebaseStars;
+            return;
+        }
+
         console.log("[Fish] Syncing stars from Firebase:", firebaseStars.length, "stars");
-        
+
         // Get current star IDs
         const currentIds = new Set(this.stars.map(s => s.id));
         const newIds = new Set(firebaseStars.map(s => s.id));
-        
+
         // Remove stars that are no longer in Firebase
         for (let i = this.stars.length - 1; i >= 0; i--) {
             if (!newIds.has(this.stars[i].id)) {
                 this._removeStarByIndex(i);
             }
         }
-        
+
         // Add stars that are new in Firebase
         firebaseStars.forEach(starData => {
             if (!currentIds.has(starData.id)) {
                 this._spawnStarAtCell({ row: starData.row, col: starData.col }, starData.id);
             }
         });
-        
+
         // Reset collision delay when stars change
         this._collisionEnabledAt = performance.now() + 500;
     }
-    
+
     /**
      * Remove a star by its array index (internal use).
      */
@@ -967,19 +968,7 @@ class WebGLFishCursor {
         if (index < 0 || index >= this.stars.length) return;
 
         const star = this.stars[index];
-
-        // Remove from scene and dispose resources
-        this.scene.remove(star.mesh);
-        star.mesh.traverse((child) => {
-            if (child.geometry) child.geometry.dispose();
-            if (child.material) {
-                if (Array.isArray(child.material)) {
-                    child.material.forEach((material) => material.dispose());
-                } else {
-                    child.material.dispose();
-                }
-            }
-        });
+        this._disposeStarMesh(star.mesh);
 
         // Remove from arrays
         this.stars.splice(index, 1);
@@ -990,6 +979,24 @@ class WebGLFishCursor {
         if (!this.stars.length) return;
         this.stars.forEach((star) => {
             star.basePosition.copy(this._gridCellToWorld(star.cell.row, star.cell.col));
+        });
+    }
+
+    /**
+     * Dispose a star mesh and its resources.
+     * @param {THREE.Group} mesh - The star mesh group to dispose
+     */
+    _disposeStarMesh(mesh) {
+        this.scene.remove(mesh);
+        mesh.traverse((child) => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) {
+                if (Array.isArray(child.material)) {
+                    child.material.forEach((mat) => mat.dispose());
+                } else {
+                    child.material.dispose();
+                }
+            }
         });
     }
 
@@ -1049,50 +1056,25 @@ class WebGLFishCursor {
         const star = this.stars[index];
         const starId = star.id;
 
-        // Remove from scene and dispose resources
-        this.scene.remove(star.mesh);
-        star.mesh.traverse((child) => {
-            if (child.geometry) child.geometry.dispose();
-            if (child.material) {
-                if (Array.isArray(child.material)) {
-                    child.material.forEach((material) => material.dispose());
-                } else {
-                    child.material.dispose();
-                }
-            }
-        });
+        this._disposeStarMesh(star.mesh);
 
         // Remove from arrays
         this.stars.splice(index, 1);
         this._starCells.splice(index, 1);
 
-        // Call the callback if provided (pass star ID for multiplayer Firebase sync)
-        if (typeof this.onStarCollected === 'function') {
+        // Only the client controlling the fish should handle scoring to prevent double-counting
+        // The star removal from Firebase will be handled by this client only
+        if (this._isControllingFish && typeof this.onStarCollected === 'function') {
             this.onStarCollected(starId);
         }
 
-        // In host-only mode, regenerate stars if all have been collected
-        // In multiplayer mode, let Firebase/host handle star regeneration
-        if (!this.isMultiplayerMode && this.stars.length === 0) {
-            this._initStars();
-        }
+        // Star regeneration is handled via Firebase - when all stars are collected,
+        // the host will detect empty stars in Firebase and regenerate them
     }
 
     _clearStars() {
         if (!this.stars.length) return;
-        this.stars.forEach((star) => {
-            this.scene.remove(star.mesh);
-            star.mesh.traverse((child) => {
-                if (child.geometry) child.geometry.dispose();
-                if (child.material) {
-                    if (Array.isArray(child.material)) {
-                        child.material.forEach((material) => material.dispose());
-                    } else {
-                        child.material.dispose();
-                    }
-                }
-            });
-        });
+        this.stars.forEach((star) => this._disposeStarMesh(star.mesh));
         this.stars = [];
         this._starCells = [];
     }
