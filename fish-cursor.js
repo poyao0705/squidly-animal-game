@@ -1084,10 +1084,9 @@ class WebGLFishCursor {
             return new this.THREE.Vector3(0, 0, 0);
         }
 
-        // Calculate left margin for UI in world units
-        const uiPx = this.config.STAR_UI_LEFT_PX || 0;
-        const worldPerPixel = (this._viewBoundsX * 2) / Math.max(1, window.innerWidth);
-        const uiLeftWorldWidth = uiPx * worldPerPixel;
+        // Calculate left margin for UI in world units (percentage-based)
+        const uiRatio = this.config.STAR_UI_LEFT_RATIO || 0.2;
+        const uiLeftWorldWidth = (this._viewBoundsX * 2) * uiRatio;
 
         // Add padding around edges
         const padX = Math.min(0.6, (this._viewBoundsX * 2 - uiLeftWorldWidth) * 0.08);

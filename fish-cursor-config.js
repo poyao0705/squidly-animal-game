@@ -40,7 +40,7 @@
  * @property {number} SMOOTHING - Movement smoothing (higher = smoother)
  * @property {number} STAR_COUNT - Default number of stars (single-player)
  * @property {number} STAR_GRID_SIZE - Grid dimension for star placement (1-4, creates NxN grid)
- * @property {number} STAR_UI_LEFT_PX - Left margin in pixels to avoid UI overlap
+ * @property {number} STAR_UI_LEFT_RATIO - Left margin as ratio of viewport width (0.2 = 20%)
  * @property {number} STAR_SIZE_MIN - Minimum star scale
  * @property {number} STAR_SIZE_MAX - Maximum star scale
  * @property {number} STAR_FLOAT_RADIUS - Radius of star floating animation
@@ -80,7 +80,7 @@ export const DEFAULT_CONFIG = {
     // === Star System ===
     STAR_COUNT: 5,                 // Default number of stars (single-player)
     STAR_GRID_SIZE: 4,             // NxN grid for star positions (1-4)
-    STAR_UI_LEFT_PX: 220,          // Left margin to avoid UI elements
+    STAR_UI_LEFT_RATIO: 0.2,       // Left margin as ratio of viewport (20% = 1/5)
     STAR_SIZE_MIN: 0.12,           // Minimum star scale
     STAR_SIZE_MAX: 0.3,            // Maximum star scale
     STAR_FLOAT_RADIUS: 0.35,       // Radius of floating animation
