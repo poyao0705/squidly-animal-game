@@ -76,16 +76,16 @@ import GameService from "./game-service.js";
  * 
  * @class
  * @example
- * // Create and start the game
+ * // Create and initialize the game
  * const game = new FishGame();
- * document.addEventListener("DOMContentLoaded", () => game.start());
+ * document.addEventListener("DOMContentLoaded", () => game.init());
  */
 class FishGame {
   /**
    * Creates a new FishGame instance.
    * 
    * Initializes all game state but does NOT start the game.
-   * Call start() after DOMContentLoaded to begin.
+   * Call init() after DOMContentLoaded to begin.
    * 
    * @constructor
    */
@@ -228,7 +228,7 @@ class FishGame {
   // ==========================================================================
 
   /**
-   * Starts the game after DOM is ready.
+   * Initializes the game after DOM is ready.
    * 
    * This method should be called once after DOMContentLoaded.
    * It initializes:
@@ -240,12 +240,12 @@ class FishGame {
    * 
    * @memberof FishGame
    */
-  start() {
+  init() {
     // Initialize host defaults first (only runs for host)
     this._initializeHostDefaults();
 
     // Initialize the WebGL fish cursor
-    this.init();
+    this._initFishCursor();
 
     // Set up event listeners (mouse, cursor API)
     this._setupEventListeners();
@@ -265,8 +265,9 @@ class FishGame {
    * 2. Configure grid size and sync stars
    * 
    * @memberof FishGame
+   * @private
    */
-  init() {
+  _initFishCursor() {
     // Create new fish cursor with current mode settings
     this.currentCursor = new WebGLFishCursor({
       isMultiplayerMode: this.isMultiplayerMode,
@@ -944,5 +945,5 @@ window.fishGame = new FishGame();
 
 // Start the game after DOM is ready
 document.addEventListener("DOMContentLoaded", () => {
-  window.fishGame.start();
+  window.fishGame.init();
 });
