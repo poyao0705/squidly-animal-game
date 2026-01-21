@@ -18,21 +18,20 @@ Key roles:
 
 ### Initialization Flow (Runtime Boot)
 1. Host-only defaults: `app.js` sets initial Firebase keys if missing
-   (`currentType`, `gridSize`, `score`, `gameMode`). Participants do not write.
-2. Cursor setup: `window.fishGame._switchToFish()` creates `WebGLFishCursor`
+   (`gridSize`, `score`, `gameMode`). Participants do not write.
+2. Cursor setup: `window.fishGame.init()` creates `WebGLFishCursor`
    and connects the `onStarCollected` callback.
 3. Input wiring:
    - Local mouse events update the active pointer (host or participant ID).
    - Squidly `addCursorListener` events update pointers from eye/mouse tracking.
 4. Firebase subscriptions attach for:
-   - `currentType`, `gridSize`, `score`, `gameMode`, `stars`.
+   - `gridSize`, `score`, `gameMode`, `stars`.
 5. UI creation:
    - Score overlay is injected into the DOM.
    - Multiplayer grid UI is created if the mode requires it.
 
 ### Firebase Data Model
 All shared data is under `fish-game/`:
-- `currentType`: active fish type (currently `fish-game/fish`).
 - `gridSize`: star grid size (1-4). Drives both UI grid and star placement.
 - `score`: shared score, incremented on collection.
 - `gameMode`: `single-player` or `multiplayer`.

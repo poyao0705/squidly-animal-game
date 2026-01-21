@@ -51,7 +51,6 @@
  * 
  * ```
  * fish-game/
- * ├── currentType: "fish-game/fish"       // Active fish type
  * ├── gridSize: 4                          // Star grid dimension (1-4)
  * ├── score: 0                             // Current score
  * ├── gameMode: "single-player"|"multiplayer"
@@ -69,10 +68,6 @@
 import { WebGLFishCursor } from "./index.js";
 import GameService from "./game-service.js";
 
-const FISH_TYPE_METHODS = {
-  "fish-game/fish": "_switchToFish",
-};
-
 // Detect session info for host identification
 const hasSessionInfo = typeof session_info !== "undefined" && session_info != null;
 const isHost = hasSessionInfo ? session_info?.user === "host" : true;
@@ -84,12 +79,6 @@ console.log("[FishGame] Session info:", { hasSessionInfo, isHost });
 if (isHost) {
   // Use firebaseOnValue to check if values exist before setting defaults
   // This prevents overwriting existing game state on page reload
-  firebaseOnValue("fish-game/currentType", (value) => {
-    if (value === null || value === undefined) {
-      firebaseSet("fish-game/currentType", "fish-game/fish");
-    }
-  }, { onlyOnce: true });
-
   firebaseOnValue("fish-game/gridSize", (value) => {
     if (value === null || value === undefined) {
       firebaseSet("fish-game/gridSize", 4);
@@ -131,25 +120,11 @@ window.fishGame = {
   // ========================================================================
 
   /**
-   * Current fish type identifier (e.g., "fish-game/fish").
-   * Synced with Firebase for multi-client consistency.
-   * @type {string|null}
-   */
-  currentType: null,
-
-  /**
    * Reference to the active WebGLFishCursor instance.
    * Provides access to the 3D renderer and its methods.
    * @type {WebGLFishCursor|null}
    */
   currentCursor: null,
-
-  /**
-   * Lock flag to prevent concurrent fish type switches.
-   * Set true during switch, false when complete.
-   * @type {boolean}
-   */
-  switching: false,
 
   /**
    * Flag to prevent Firebase write loops during sync.
@@ -713,45 +688,8 @@ window.fishGame = {
     console.log(`[FishGame] Star collected and removed from Firebase: ${starId}`);
   },
 
-  // ========================================================================
-  // FISH TYPE MANAGEMENT
-  // These methods handle switching between different fish cursor types
-  // (Currently only fish is implemented)
-  // ========================================================================
-
   /**
-   * Sets the current fish type and syncs to Firebase.
-   * 
-   * @param {string} type - Fish type identifier (e.g., "fish-game/fish")
-   * @memberof fishGame
-   */
-  setAppType: function (type) {
-    if (this.currentType !== type) {
-      this.currentType = type;
-      document.body.setAttribute("app-type", type);
-
-      // Sync to Firebase unless we're processing a remote change
-      if (!this._isSyncingFromRemote) {
-        firebaseSet("fish-game/currentType", type);
-      }
-    }
-  },
-
-  /**
-   * Requests a switch to a different fish type via Firebase.
-   * The actual switch happens when Firebase notifies all clients.
-   * 
-   * @param {string} type - Fish type to switch to
-   * @memberof fishGame
-   */
-  requestSwitch: function (type) {
-    if (type) {
-      firebaseSet("fish-game/currentType", type);
-    }
-  },
-
-  /**
-   * Switches to the fish cursor.
+   * Initializes the fish cursor.
    * 
    * Process:
    * 1. Destroy existing cursor (if any)
@@ -760,13 +698,8 @@ window.fishGame = {
    * 4. Update body attribute for CSS styling
    * 
    * @memberof fishGame
-   * @private
    */
-  _switchToFish: function () {
-    // Prevent concurrent switches
-    if (this.switching) return;
-    this.switching = true;
-
+  init: function () {
     this.destroyCurrentCursor().then(() => {
       const self = this;
 
@@ -787,9 +720,7 @@ window.fishGame = {
         this.currentCursor.syncStarsFromFirebase(this.firebaseStars);
       }
 
-      this.currentType = "fish-game/fish";
       document.body.setAttribute("app-type", "fish-game/fish");
-      this.switching = false;
     });
   },
 
@@ -843,7 +774,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // --------------------------------------------------------------------------
   // STEP 1: Initialize the fish cursor
   // --------------------------------------------------------------------------
-  window.fishGame._switchToFish();
+  window.fishGame.init();
 
   // --------------------------------------------------------------------------
   // STEP 2: Local mouse input
@@ -860,25 +791,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // STEP 3: Firebase subscriptions
   // 
   // Each subscription syncs a piece of game state:
-  // - currentType: Which fish cursor is active
   // - gridSize: Star grid dimension (1-4)
   // - score: Stars collected
   // - gameMode: single-player vs multiplayer
   // - stars: Array of star positions (handled separately)
   // --------------------------------------------------------------------------
-
-  // Fish type sync (for future multi-fish support)
-  firebaseOnValue("fish-game/currentType", (value) => {
-    if (value !== window.fishGame.currentType) {
-      const methodName = FISH_TYPE_METHODS[value];
-      if (methodName && typeof window.fishGame[methodName] === "function") {
-        // Set flag to prevent write-back loop
-        window.fishGame._isSyncingFromRemote = true;
-        window.fishGame[methodName]();
-        window.fishGame._isSyncingFromRemote = false;
-      }
-    }
-  });
 
   // Grid size sync
   // When size changes: update cursor, recreate control grid, regenerate stars
