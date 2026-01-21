@@ -120,3 +120,31 @@ body {
 .star-control-cell.has-star .star-icon {
     opacity: 1;
 }
+
+/* Score Display */
+#score-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 20px;
+    background: linear-gradient(135deg, rgba(255, 234, 0, 0.9), rgba(255, 180, 0, 0.9));
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(255, 200, 0, 0.4);
+    z-index: 9999;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    pointer-events: none;
+}
+
+#score-container .score-icon {
+    font-size: 28px;
+}
+
+#score-container .score-value {
+    font-size: 32px;
+    font-weight: bold;
+    color: #333;
+    text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8);
+}

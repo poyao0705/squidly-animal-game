@@ -733,8 +733,7 @@ class FishGame {
    * - Star emoji icon
    * - Current score number
    * 
-   * Styled with a golden gradient background to match the star theme.
-   * Uses pointer-events: none so it doesn't interfere with gameplay.
+   * Styling is defined in style.css via #score-container.
    * 
    * @memberof FishGame
    * @private
@@ -743,38 +742,18 @@ class FishGame {
     // Only create once
     if (this._scoreElement) return;
 
-    // Container with golden gradient background
+    // Container (styled via #score-container in style.css)
     const container = document.createElement("div");
     container.id = "score-container";
-    Object.assign(container.style, {
-      position: "fixed",
-      top: "20px",
-      right: "20px",
-      display: "flex",
-      alignItems: "center",
-      gap: "10px",
-      padding: "12px 20px",
-      background: "linear-gradient(135deg, rgba(255, 234, 0, 0.9), rgba(255, 180, 0, 0.9))",
-      borderRadius: "16px",
-      boxShadow: "0 4px 20px rgba(255, 200, 0, 0.4)",
-      zIndex: "9999",
-      fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-      pointerEvents: "none",  // Don't block clicks
-    });
 
     // Star emoji
     const starIcon = document.createElement("span");
+    starIcon.className = "score-icon";
     starIcon.textContent = "\u2B50";  // ⭐
-    starIcon.style.fontSize = "28px";
 
     // Score number
     this._scoreElement = document.createElement("span");
-    Object.assign(this._scoreElement.style, {
-      fontSize: "32px",
-      fontWeight: "bold",
-      color: "#333",
-      textShadow: "1px 1px 2px rgba(255, 255, 255, 0.8)",
-    });
+    this._scoreElement.className = "score-value";
     this._scoreElement.textContent = this.score;
 
     container.appendChild(starIcon);
