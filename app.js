@@ -692,50 +692,30 @@ window.fishGame = {
    * Initializes the fish cursor.
    * 
    * Process:
-   * 1. Destroy existing cursor (if any)
-   * 2. Create new WebGLFishCursor with current settings
-   * 3. Configure grid size and sync stars
-   * 4. Update body attribute for CSS styling
+   * 1. Create new WebGLFishCursor with current settings
+   * 2. Configure grid size and sync stars
    * 
    * @memberof fishGame
    */
   init: function () {
-    this.destroyCurrentCursor().then(() => {
-      const self = this;
+    const self = this;
 
-      // Create new fish cursor with current mode settings
-      this.currentCursor = new WebGLFishCursor({
-        isMultiplayerMode: this.isMultiplayerMode,
-        isHost: this.isHost,
-        onStarCollected: function (starId) {
-          self.onStarCollected(starId);
-        },
-      });
-
-      // Apply current grid size
-      this.currentCursor.setStarGrid(this.gridSize);
-
-      // Sync existing stars from Firebase
-      if (this.isMultiplayerMode) {
-        this.currentCursor.syncStarsFromFirebase(this.firebaseStars);
-      }
-
-      document.body.setAttribute("app-type", "fish-game/fish");
+    // Create new fish cursor with current mode settings
+    this.currentCursor = new WebGLFishCursor({
+      isMultiplayerMode: this.isMultiplayerMode,
+      isHost: this.isHost,
+      onStarCollected: function (starId) {
+        self.onStarCollected(starId);
+      },
     });
-  },
 
-  /**
-   * Destroys the current cursor and cleans up resources.
-   * 
-   * @returns {Promise} Resolves when destruction is complete
-   * @memberof fishGame
-   */
-  destroyCurrentCursor: function () {
-    if (this.currentCursor && this.currentCursor.destroy) {
-      this.currentCursor.destroy();
-      this.currentCursor = null;
+    // Apply current grid size
+    this.currentCursor.setStarGrid(this.gridSize);
+
+    // Sync existing stars from Firebase
+    if (this.isMultiplayerMode) {
+      this.currentCursor.syncStarsFromFirebase(this.firebaseStars);
     }
-    return Promise.resolve();
   },
 
   /**
