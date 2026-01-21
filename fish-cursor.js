@@ -242,7 +242,6 @@ class WebGLFishCursor {
 
         // Process any pending Firebase stars that arrived before init completed
         if (this._pendingFirebaseStars !== null) {
-            console.log("[Fish] Processing", this._pendingFirebaseStars.length, "pending Firebase stars");
             this.syncStarsFromFirebase(this._pendingFirebaseStars);
             this._pendingFirebaseStars = null;
         }
@@ -287,7 +286,6 @@ class WebGLFishCursor {
         if (this.isMultiplayerMode === isMultiplayer) return;
 
         this.isMultiplayerMode = isMultiplayer;
-        console.log(`[Fish] Multiplayer mode set to: ${isMultiplayer}`);
     }
 
     /**
@@ -652,9 +650,6 @@ class WebGLFishCursor {
         if (currentController !== lastController || (now - lastControllerLog > CONTROLLER_LOG_THROTTLE_MS)) {
             if (currentController !== lastController) {
                 console.log(`[Fish] Controller changed: ${lastController} -> ${currentController} (multiplayer: ${this.isMultiplayerMode})`);
-            }
-            if (activePointer) {
-                console.log(`[Fish] Active: ${currentController}, x=${Math.round(activePointer.x)}, y=${Math.round(activePointer.y)}, lastSeen=${Math.round(now - activePointer.lastSeen)}ms ago`);
             }
             lastController = currentController;
             lastControllerLog = now;
@@ -1304,7 +1299,6 @@ class WebGLFishCursor {
      */
     _initStars() {
         this._clearStars();
-        console.log("[Fish] Waiting for Firebase star sync");
     }
 
     /**
@@ -1369,12 +1363,9 @@ class WebGLFishCursor {
 
         // Queue stars if not ready yet (will process in _init)
         if (!this.ready || !this.THREE) {
-            console.log("[Fish] Not ready yet, queuing", firebaseStars.length, "stars for later sync");
             this._pendingFirebaseStars = firebaseStars;
             return;
         }
-
-        console.log("[Fish] Syncing stars from Firebase:", firebaseStars.length, "stars");
 
         // Build ID sets for comparison
         const currentIds = new Set(this.stars.map(s => s.id));
