@@ -1,9 +1,9 @@
 {
-    "name": "Squidly Animal Game",
-    "title": "Animal Game",
-    "subtitle": "Interactive Animals",
+    "name": "Squidly Fish Game",
+    "title": "Fish Game",
+    "subtitle": "Collect Stars with your fish",
     "version": "1.0.0",
-    "description": "Led your animal through the squidly session",
-    "author": "Antigravity",
-    "icon": "https://cursor-splash.squidly.com.au/cursor-splash.png"
+    "description": "Led your fish through the squidly session and collect stars",
+    "author": "Po-Yao Huang",
+    "icon": "https://starfin-adventure.squidly.com.au/cursor-splash.png"
 }

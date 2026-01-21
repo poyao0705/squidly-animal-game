@@ -67,6 +67,7 @@
  */
 
 import { WebGLFishCursor } from "./index.js";
+import GameService from "./game-service.js";
 
 const ANIMAL_TYPE_METHODS = {
   "animal-game/fish": "_switchToFish",
@@ -110,6 +111,9 @@ if (isHost) {
 
 // Note: Stars are now always synced via Firebase
 // Host will generate random stars when Firebase sync initializes and no stars exist
+
+// Initialize game service with pure game logic
+const gameService = new GameService();
 
 /**
  * Global game state object - manages all game data and provides methods
@@ -261,9 +265,9 @@ window.animalGame = {
    * | Star Grid UI     | Hidden             | Visible (host only)   |
    * 
    * ## What This Method Does
-   * 1. Updates isMultiplayerMode flag
-   * 2. Clears or generates stars based on mode
-   * 3. Shows/hides star control grid (host)
+   * 1. Uses GameService to determine mode change actions
+   * 2. Updates UI based on mode (grid visibility)
+   * 3. Clears or generates stars based on mode
    * 4. Updates WebGLFishCursor mode
    * 5. Updates mode toggle icon
    * 
@@ -271,26 +275,28 @@ window.animalGame = {
    * @memberof animalGame
    */
   _setGameMode: function (mode) {
-    const isMultiplayer = mode === "multiplayer";
+    // Use GameService to determine mode change actions (pure logic)
+    const modeResult = gameService.setGameMode(mode, this.isMultiplayerMode);
 
     // Skip if no change
-    if (this.isMultiplayerMode === isMultiplayer) return;
+    if (!modeResult.changed) return;
 
-    this.isMultiplayerMode = isMultiplayer;
+    // Update local and service state
+    this.isMultiplayerMode = modeResult.isMultiplayer;
+    gameService.isMultiplayerMode = modeResult.isMultiplayer;
     console.log("[AnimalGame] Game mode set to:", mode);
 
-    if (isMultiplayer) {
-      // MULTIPLAYER MODE
-      // - Clear all stars (host will place them manually)
-      // - Show grid UI for host to click and place stars
+    // Handle star clearing/generation based on service logic
+    if (modeResult.shouldClearStars) {
+      // MULTIPLAYER MODE: Clear all stars (host will place them manually)
       firebaseSet("animal-game/stars", []);
+      this.firebaseStars = [];
+      gameService.setStars([]);
       if (this.isHost) {
         this._createStarControlGrid();
       }
-    } else {
-      // SINGLE-PLAYER MODE
-      // - Hide manual grid UI
-      // - Auto-generate random stars
+    } else if (modeResult.shouldGenerateStars) {
+      // SINGLE-PLAYER MODE: Hide manual grid UI and auto-generate random stars
       this._destroyStarControlGrid();
       if (this.isHost) {
         this._generateRandomStarsToFirebase();
@@ -299,7 +305,7 @@ window.animalGame = {
 
     // Update cursor's internal mode (affects control logic)
     if (this.currentCursor && this.currentCursor.setMultiplayerMode) {
-      this.currentCursor.setMultiplayerMode(isMultiplayer);
+      this.currentCursor.setMultiplayerMode(modeResult.isMultiplayer);
     }
 
     // Update the sidebar icon to show what mode we'll switch TO
@@ -365,8 +371,6 @@ window.animalGame = {
     firebaseOnValue("animal-game/stars", (value) => {
       window.animalGame._onFirebaseStarsUpdate(value);
     });
-
-    console.log("[AnimalGame] Firebase star sync initialized");
   },
 
   /**
@@ -377,13 +381,7 @@ window.animalGame = {
    * - All stars are collected
    * - Grid size changes
    * 
-   * ## Algorithm
-   * 1. Calculate star count (half of total grid cells)
-   * 2. Generate all possible grid positions
-   * 3. Shuffle using Fisher-Yates algorithm
-   * 4. Take first N positions
-   * 5. Create star objects with unique IDs
-   * 6. Write to Firebase (triggers sync to all clients)
+   * Uses GameService for pure star generation logic, then syncs to Firebase.
    * 
    * @memberof animalGame
    * @private
@@ -392,48 +390,34 @@ window.animalGame = {
     // Only host should generate stars
     if (!this.isHost) return;
 
-    const gridSize = this.gridSize;
-    const totalCells = gridSize * gridSize;
-    const starCount = Math.max(1, Math.ceil(totalCells / 2));  // 50% of cells
+    // Use GameService to generate stars (pure logic)
+    const stars = gameService.generateRandomStars(this.gridSize);
 
-    // Generate all possible grid cells
-    const allCells = [];
-    for (let row = 0; row < gridSize; row++) {
-      for (let col = 0; col < gridSize; col++) {
-        allCells.push({ row, col });
-      }
-    }
-
-    // Fisher-Yates shuffle for random selection
-    for (let i = allCells.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [allCells[i], allCells[j]] = [allCells[j], allCells[i]];
-    }
-
-    const selectedCells = allCells.slice(0, starCount);
-
-    // Create star objects with unique IDs
-    // ID format: star_{row}_{col}_{timestamp}_{random}
-    const stars = selectedCells.map((cell) => ({
-      id: `star_${cell.row}_${cell.col}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      row: cell.row,
-      col: cell.col,
-    }));
+    // Update service state
+    gameService.setStars(stars);
+    this.firebaseStars = stars;
 
     // Write to Firebase - this triggers sync to all clients
     firebaseSet("animal-game/stars", stars);
-    console.log(`[AnimalGame] Generated ${stars.length} random stars and wrote to Firebase`);
   },
 
   /**
    * Increments the score by 1 and syncs to Firebase.
    * Called when a star is collected.
    * 
+   * Uses GameService for score calculation, then syncs to Firebase and updates UI.
+   * 
    * @memberof animalGame
    */
   incrementScore: function () {
-    this.score++;
-    firebaseSet("animal-game/score", this.score);  // Sync to all clients
+    // Use GameService to increment score (pure logic)
+    const newScore = gameService.incrementScore();
+
+    // Update local state
+    this.score = newScore;
+
+    // Sync to Firebase and update UI (controller responsibilities)
+    firebaseSet("animal-game/score", newScore);
     this._updateScoreDisplay();
   },
 
@@ -581,8 +565,6 @@ window.animalGame = {
 
     // Apply initial cell states based on current Firebase stars
     this._updateStarCellStates();
-
-    console.log("[AnimalGame] Star control grid created for host");
   },
 
   /**
@@ -637,6 +619,7 @@ window.animalGame = {
    * - If star exists at (row, col): removes it from Firebase
    * - If no star exists: creates new star with unique ID and adds to Firebase
    * 
+   * Uses GameService for toggle logic, then syncs to Firebase.
    * All changes go through Firebase, which triggers sync to all clients
    * (including this one, updating the WebGL renderer).
    * 
@@ -647,28 +630,18 @@ window.animalGame = {
    * @private
    */
   _onStarCellClick: function (row, col, cellElement) {
-    // Check if star already exists at this position
-    const existingIndex = this.firebaseStars.findIndex(
-      (s) => s.row === row && s.col === col
-    );
+    // Ensure service has current stars state
+    gameService.setStars(this.firebaseStars);
+    const previousCount = this.firebaseStars.length;
 
-    if (existingIndex >= 0) {
-      // REMOVE existing star
-      const newStars = [...this.firebaseStars];
-      newStars.splice(existingIndex, 1);
-      firebaseSet("animal-game/stars", newStars);
-      console.log(`[AnimalGame] Removed star at (${row}, ${col})`);
-    } else {
-      // ADD new star
-      const newStar = {
-        id: `star_${row}_${col}_${Date.now()}`,  // Unique ID
-        row: row,
-        col: col,
-      };
-      const newStars = [...this.firebaseStars, newStar];
-      firebaseSet("animal-game/stars", newStars);
-      console.log(`[AnimalGame] Added star at (${row}, ${col})`);
-    }
+    // Use GameService to toggle star (pure logic)
+    const newStars = gameService.toggleStarAtPosition(row, col);
+
+    // Update local state
+    this.firebaseStars = newStars;
+
+    // Sync to Firebase (triggers sync to all clients)
+    firebaseSet("animal-game/stars", newStars);
   },
 
   /**
@@ -685,9 +658,9 @@ window.animalGame = {
    * @private
    */
   _onFirebaseStarsUpdate: function (stars) {
-    // Update local cache
+    // Update local cache and service state
     this.firebaseStars = Array.isArray(stars) ? stars : [];
-    console.log("[AnimalGame] Firebase stars updated:", this.firebaseStars.length, "stars");
+    gameService.setStars(this.firebaseStars);
 
     // Update grid UI to show which cells have stars (host multiplayer only)
     this._updateStarCellStates();
@@ -698,12 +671,12 @@ window.animalGame = {
     }
 
     // AUTO-REGENERATION (single-player mode only)
-    // When all stars are collected, generate new ones
-    // In multiplayer, host must manually place stars
-    if (this.isHost && this.firebaseStars.length === 0 && this._firebaseStarsSyncInitialized && !this.isMultiplayerMode) {
+    // Use GameService to determine if regeneration should happen
+    if (this.isHost && this._firebaseStarsSyncInitialized &&
+      gameService.shouldRegenerateStars(this.firebaseStars, this.isMultiplayerMode)) {
       // Small delay to avoid race conditions on initial load
       setTimeout(() => {
-        if (this.firebaseStars.length === 0 && !this.isMultiplayerMode) {
+        if (gameService.shouldRegenerateStars(this.firebaseStars, this.isMultiplayerMode)) {
           this._generateRandomStarsToFirebase();
         }
       }, 500);
@@ -714,8 +687,8 @@ window.animalGame = {
    * Callback from WebGLFishCursor when fish collides with a star.
    * 
    * This method:
-   * 1. Increments and syncs the score
-   * 2. Removes the collected star from Firebase
+   * 1. Uses GameService to collect star and increment score
+   * 2. Syncs updated state to Firebase
    * 
    * Note: Only the client controlling the fish calls this (collision authority).
    * This prevents double-counting when both clients see the same collision.
@@ -724,14 +697,20 @@ window.animalGame = {
    * @memberof animalGame
    */
   onStarCollected: function (starId) {
-    this.incrementScore();
+    if (!starId) return;
 
-    if (starId) {
-      // Remove star from Firebase (triggers sync to all clients)
-      const newStars = this.firebaseStars.filter((s) => s.id !== starId);
-      firebaseSet("animal-game/stars", newStars);
-      console.log(`[AnimalGame] Star collected and removed from Firebase: ${starId}`);
-    }
+    // Use GameService to collect star (pure logic: removes star, increments score)
+    const result = gameService.collectStar(starId);
+
+    // Update local state
+    this.score = result.newScore;
+    this.firebaseStars = result.remainingStars;
+
+    // Sync to Firebase (triggers sync to all clients)
+    firebaseSet("animal-game/score", result.newScore);
+    firebaseSet("animal-game/stars", result.remainingStars);
+    this._updateScoreDisplay();
+    console.log(`[AnimalGame] Star collected and removed from Firebase: ${starId}`);
   },
 
   // ========================================================================
@@ -793,7 +772,6 @@ window.animalGame = {
 
       // Create new fish cursor with current mode settings
       this.currentCursor = new WebGLFishCursor({
-        autoMouseEvents: false,
         isMultiplayerMode: this.isMultiplayerMode,
         isHost: this.isHost,
         onStarCollected: function (starId) {
@@ -905,21 +883,25 @@ document.addEventListener("DOMContentLoaded", () => {
   // Grid size sync
   // When size changes: update cursor, recreate control grid, regenerate stars
   firebaseOnValue("animal-game/gridSize", (value) => {
-    const size = Number(value);
-    if (Number.isFinite(size) && size >= 1 && size <= 4) {
-      const sizeChanged = window.animalGame.gridSize !== size;
-      window.animalGame.gridSize = size;
+    // Use GameService to validate grid size (pure logic)
+    const validatedSize = gameService.validateGridSize(value);
+    const sizeChanged = window.animalGame.gridSize !== validatedSize;
+
+    if (sizeChanged) {
+      // Update service and local state
+      gameService.setGridSize(validatedSize);
+      window.animalGame.gridSize = validatedSize;
 
       // Update WebGL cursor's star grid
       if (window.animalGame.currentCursor) {
-        window.animalGame.currentCursor.setStarGrid(size);
+        window.animalGame.currentCursor.setStarGrid(validatedSize);
       }
 
       // Recreate host control grid with new dimensions
       window.animalGame._createStarControlGrid();
 
       // In single-player: new grid size means regenerate stars
-      if (sizeChanged && !window.animalGame.isMultiplayerMode && window.animalGame.isHost) {
+      if (!window.animalGame.isMultiplayerMode && window.animalGame.isHost) {
         window.animalGame._generateRandomStarsToFirebase();
       }
     }
@@ -932,6 +914,8 @@ document.addEventListener("DOMContentLoaded", () => {
   firebaseOnValue("animal-game/score", (value) => {
     const score = Number(value);
     if (Number.isFinite(score) && score >= 0) {
+      // Sync to service and local state
+      gameService.setScore(score);
       window.animalGame.score = score;
       window.animalGame._updateScoreDisplay();
     }
@@ -961,8 +945,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // --------------------------------------------------------------------------
   addCursorListener((data) => {
     const isParticipant = data.user.includes("participant");
-    console.log(`[CursorListener] user=${data.user}, isParticipant=${isParticipant}, x=${Math.round(data.x)}, y=${Math.round(data.y)}, source=${data.source}`);
-
     window.animalGame.updatePointerPosition(data.x, data.y, null, isParticipant);
   });
 

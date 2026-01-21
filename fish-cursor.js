@@ -77,14 +77,13 @@ class WebGLFishCursor {
      * @constructor
      * @param {Object} options - Configuration options
      * @param {Object} [options.configOverrides={}] - Override default config values. See {@link module:FishCursorConfig} for all available options.
-     * @param {boolean} [options.autoMouseEvents=false] - Whether to automatically listen for mouse events (deprecated)
      * @param {Function|null} [options.onStarCollected=null] - Callback when a star is collected. Receives starId as argument.
      * @param {boolean} [options.isMultiplayerMode=false] - Enable multiplayer mode (participant controls fish, host places stars)
      * @param {boolean} [options.isHost=true] - Whether this client is the host (affects collision authority)
      * 
      * @property {Object} config - Configuration object. See {@link module:FishCursorConfig} for all available properties.
      */
-    constructor({ configOverrides = {}, autoMouseEvents = false, onStarCollected = null, isMultiplayerMode = false, isHost = true } = {}) {
+    constructor({ configOverrides = {}, onStarCollected = null, isMultiplayerMode = false, isHost = true } = {}) {
         /** @type {Object|null} Three.js module reference, loaded asynchronously */
         this.THREE = null;
 
@@ -171,7 +170,6 @@ class WebGLFishCursor {
 
         this._onResize = this._debounce(() => this._resize(), 100);
         this._onVisibility = () => (document.hidden ? cancelAnimationFrame(this._raf) : this._loop());
-        this._autoMouse = autoMouseEvents;
 
         this._init().catch(err => console.error("[Fish] failed to init:", err));
     }
@@ -274,14 +272,10 @@ class WebGLFishCursor {
 
         this.config.STAR_GRID_SIZE = clamped;
 
-        // In single-player mode, reinitialize stars with new grid
-        // In multiplayer mode, just update positions of existing stars
+        // Update positions of existing stars when grid size changes
+        // Star regeneration is handled by app.js
         if (this.scene) {
-            if (this.isMultiplayerMode) {
-                this._updateStarGridPositions();
-            } else {
-                this._initStars();
-            }
+            this._updateStarGridPositions();
         }
     }
 
@@ -1052,45 +1046,6 @@ class WebGLFishCursor {
     // Each cell maps to a world position, with padding to avoid screen edges
     // and the left UI area.
     // ========================================================================
-
-    /**
-     * Fisher-Yates shuffle algorithm - randomizes array in place.
-     * Used for random star placement selection.
-     * 
-     * @param {Array} list - Array to shuffle
-     * @returns {Array} Same array, shuffled
-     * @private
-     */
-    _shuffleInPlace(list) {
-        for (let i = list.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [list[i], list[j]] = [list[j], list[i]];
-        }
-        return list;
-    }
-
-    /**
-     * Gets random grid cells for star placement.
-     * Creates all possible cells, shuffles them, and returns the requested count.
-     * 
-     * @param {number} count - Number of cells to return
-     * @returns {Array<{row: number, col: number, n: number}>} Random grid cells
-     * @private
-     */
-    _getRandomStarCells(count) {
-        const n = this._getStarGridSize();
-        const cells = [];
-
-        // Generate all possible grid cells
-        for (let row = 0; row < n; row++) {
-            for (let col = 0; col < n; col++) {
-                cells.push({ row, col, n });
-            }
-        }
-
-        this._shuffleInPlace(cells);
-        return cells.slice(0, Math.min(count, cells.length));
-    }
 
     /**
      * Returns a random number between min and max (inclusive).
