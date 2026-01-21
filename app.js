@@ -1,5 +1,5 @@
 /**
- * @fileoverview Squidly Animal Game - Main Application Controller
+ * @fileoverview Squidly Fish Game - Main Application Controller
  * 
  * This module manages the game state, Firebase synchronization, and UI for the
  * fish star-collecting game. It serves as the bridge between the WebGL renderer
@@ -12,7 +12,7 @@
  * │                        app.js (this file)                       │
  * │                                                                 │
  * │  ┌─────────────────┐  ┌─────────────────┐  ┌────────────────┐  │
- * │  │ window.animalGame│  │  Firebase Sync  │  │   UI Elements  │  │
+ * │  │ window.fishGame  │  │  Firebase Sync  │  │   UI Elements  │  │
  * │  │   (Game State)  │◄─┤  (Multiplayer)  │  │ (Score, Grid)  │  │
  * │  └────────┬────────┘  └────────┬────────┘  └───────┬────────┘  │
  * │           │                    │                   │           │
@@ -50,8 +50,8 @@
  * ## Firebase Data Structure
  * 
  * ```
- * animal-game/
- * ├── currentType: "animal-game/fish"     // Active animal type
+ * fish-game/
+ * ├── currentType: "fish-game/fish"       // Active fish type
  * ├── gridSize: 4                          // Star grid dimension (1-4)
  * ├── score: 0                             // Current score
  * ├── gameMode: "single-player"|"multiplayer"
@@ -62,49 +62,49 @@
  *     ]
  * ```
  * 
- * @module AnimalGame
+ * @module FishGame
  * @requires WebGLFishCursor from ./index.js
  */
 
 import { WebGLFishCursor } from "./index.js";
 import GameService from "./game-service.js";
 
-const ANIMAL_TYPE_METHODS = {
-  "animal-game/fish": "_switchToFish",
+const FISH_TYPE_METHODS = {
+  "fish-game/fish": "_switchToFish",
 };
 
 // Detect session info for host identification
 const hasSessionInfo = typeof session_info !== "undefined" && session_info != null;
 const isHost = hasSessionInfo ? session_info?.user === "host" : true;
 
-console.log("[AnimalGame] Session info:", { hasSessionInfo, isHost });
+console.log("[FishGame] Session info:", { hasSessionInfo, isHost });
 
 // Only host initializes default Firebase values to prevent race conditions
 // and avoid resetting values (especially score) when participants join
 if (isHost) {
   // Use firebaseOnValue to check if values exist before setting defaults
   // This prevents overwriting existing game state on page reload
-  firebaseOnValue("animal-game/currentType", (value) => {
+  firebaseOnValue("fish-game/currentType", (value) => {
     if (value === null || value === undefined) {
-      firebaseSet("animal-game/currentType", "animal-game/fish");
+      firebaseSet("fish-game/currentType", "fish-game/fish");
     }
   }, { onlyOnce: true });
 
-  firebaseOnValue("animal-game/gridSize", (value) => {
+  firebaseOnValue("fish-game/gridSize", (value) => {
     if (value === null || value === undefined) {
-      firebaseSet("animal-game/gridSize", 4);
+      firebaseSet("fish-game/gridSize", 4);
     }
   }, { onlyOnce: true });
 
-  firebaseOnValue("animal-game/score", (value) => {
+  firebaseOnValue("fish-game/score", (value) => {
     if (value === null || value === undefined) {
-      firebaseSet("animal-game/score", 0);
+      firebaseSet("fish-game/score", 0);
     }
   }, { onlyOnce: true });
 
-  firebaseOnValue("animal-game/gameMode", (value) => {
+  firebaseOnValue("fish-game/gameMode", (value) => {
     if (value === null || value === undefined) {
-      firebaseSet("animal-game/gameMode", "single-player");
+      firebaseSet("fish-game/gameMode", "single-player");
     }
   }, { onlyOnce: true });
 }
@@ -119,19 +119,19 @@ const gameService = new GameService();
  * Global game state object - manages all game data and provides methods
  * for game control, Firebase sync, and UI management.
  * 
- * Exposed as `window.animalGame` for access from the Squidly platform
+ * Exposed as `window.fishGame` for access from the Squidly platform
  * and debugging console.
  * 
- * @namespace animalGame
+ * @namespace fishGame
  * @global
  */
-window.animalGame = {
+window.fishGame = {
   // ========================================================================
   // CORE STATE
   // ========================================================================
 
   /**
-   * Current animal type identifier (e.g., "animal-game/fish").
+   * Current fish type identifier (e.g., "fish-game/fish").
    * Synced with Firebase for multi-client consistency.
    * @type {string|null}
    */
@@ -145,7 +145,7 @@ window.animalGame = {
   currentCursor: null,
 
   /**
-   * Lock flag to prevent concurrent animal type switches.
+   * Lock flag to prevent concurrent fish type switches.
    * Set true during switch, false when complete.
    * @type {boolean}
    */
@@ -272,7 +272,7 @@ window.animalGame = {
    * 5. Updates mode toggle icon
    * 
    * @param {string} mode - "single-player" or "multiplayer"
-   * @memberof animalGame
+   * @memberof fishGame
    */
   _setGameMode: function (mode) {
     // Use GameService to determine mode change actions (pure logic)
@@ -284,12 +284,12 @@ window.animalGame = {
     // Update local and service state
     this.isMultiplayerMode = modeResult.isMultiplayer;
     gameService.isMultiplayerMode = modeResult.isMultiplayer;
-    console.log("[AnimalGame] Game mode set to:", mode);
+    console.log("[FishGame] Game mode set to:", mode);
 
     // Handle star clearing/generation based on service logic
     if (modeResult.shouldClearStars) {
       // MULTIPLAYER MODE: Clear all stars (host will place them manually)
-      firebaseSet("animal-game/stars", []);
+      firebaseSet("fish-game/stars", []);
       this.firebaseStars = [];
       gameService.setStars([]);
       if (this.isHost) {
@@ -321,7 +321,7 @@ window.animalGame = {
    * 
    * Clicking the icon triggers a Firebase write that all clients receive.
    * 
-   * @memberof animalGame
+   * @memberof fishGame
    * @private
    */
   _updateModeIcon: function () {
@@ -339,8 +339,8 @@ window.animalGame = {
       },
       () => {
         // Toggle mode via Firebase (syncs to all clients)
-        const newMode = window.animalGame.isMultiplayerMode ? "single-player" : "multiplayer";
-        firebaseSet("animal-game/gameMode", newMode);
+        const newMode = window.fishGame.isMultiplayerMode ? "single-player" : "multiplayer";
+        firebaseSet("fish-game/gameMode", newMode);
       }
     );
   },
@@ -359,7 +359,7 @@ window.animalGame = {
    * This is the foundation of multiplayer sync - any client changing stars
    * writes to Firebase, and all clients receive the update through this listener.
    * 
-   * @memberof animalGame
+   * @memberof fishGame
    * @private
    */
   _initializeFirebaseStarsSync: function () {
@@ -368,8 +368,8 @@ window.animalGame = {
     this._firebaseStarsSyncInitialized = true;
 
     // Subscribe to star changes
-    firebaseOnValue("animal-game/stars", (value) => {
-      window.animalGame._onFirebaseStarsUpdate(value);
+    firebaseOnValue("fish-game/stars", (value) => {
+      window.fishGame._onFirebaseStarsUpdate(value);
     });
   },
 
@@ -383,7 +383,7 @@ window.animalGame = {
    * 
    * Uses GameService for pure star generation logic, then syncs to Firebase.
    * 
-   * @memberof animalGame
+   * @memberof fishGame
    * @private
    */
   _generateRandomStarsToFirebase: function () {
@@ -398,7 +398,7 @@ window.animalGame = {
     this.firebaseStars = stars;
 
     // Write to Firebase - this triggers sync to all clients
-    firebaseSet("animal-game/stars", stars);
+    firebaseSet("fish-game/stars", stars);
   },
 
   /**
@@ -407,7 +407,7 @@ window.animalGame = {
    * 
    * Uses GameService for score calculation, then syncs to Firebase and updates UI.
    * 
-   * @memberof animalGame
+   * @memberof fishGame
    */
   incrementScore: function () {
     // Use GameService to increment score (pure logic)
@@ -417,14 +417,14 @@ window.animalGame = {
     this.score = newScore;
 
     // Sync to Firebase and update UI (controller responsibilities)
-    firebaseSet("animal-game/score", newScore);
+    firebaseSet("fish-game/score", newScore);
     this._updateScoreDisplay();
   },
 
   /**
    * Updates the score display element with current score.
    * 
-   * @memberof animalGame
+   * @memberof fishGame
    * @private
    */
   _updateScoreDisplay: function () {
@@ -448,7 +448,7 @@ window.animalGame = {
    * Styled with a golden gradient background to match the star theme.
    * Uses pointer-events: none so it doesn't interfere with gameplay.
    * 
-   * @memberof animalGame
+   * @memberof fishGame
    * @private
    */
   _createScoreDisplay: function () {
@@ -516,7 +516,7 @@ window.animalGame = {
    * The grid size is determined by this.gridSize (1-4).
    * Grid styling is defined in style.css via .star-control-grid and .star-control-cell classes.
    * 
-   * @memberof animalGame
+   * @memberof fishGame
    * @private
    */
   _createStarControlGrid: function () {
@@ -571,7 +571,7 @@ window.animalGame = {
    * Removes the star control grid from the DOM.
    * Called when switching to single-player mode or cleaning up.
    * 
-   * @memberof animalGame
+   * @memberof fishGame
    * @private
    */
   _destroyStarControlGrid: function () {
@@ -592,7 +592,7 @@ window.animalGame = {
    * 
    * Called whenever Firebase star data changes.
    * 
-   * @memberof animalGame
+   * @memberof fishGame
    * @private
    */
   _updateStarCellStates: function () {
@@ -626,7 +626,7 @@ window.animalGame = {
    * @param {number} row - Grid row (0-indexed from top)
    * @param {number} col - Grid column (0-indexed from left)
    * @param {HTMLElement} cellElement - The clicked cell element (unused but available)
-   * @memberof animalGame
+   * @memberof fishGame
    * @private
    */
   _onStarCellClick: function (row, col, cellElement) {
@@ -641,7 +641,7 @@ window.animalGame = {
     this.firebaseStars = newStars;
 
     // Sync to Firebase (triggers sync to all clients)
-    firebaseSet("animal-game/stars", newStars);
+    firebaseSet("fish-game/stars", newStars);
   },
 
   /**
@@ -654,7 +654,7 @@ window.animalGame = {
    * 4. Triggers star regeneration if empty (single-player, host only)
    * 
    * @param {Array|null} stars - Star data from Firebase
-   * @memberof animalGame
+   * @memberof fishGame
    * @private
    */
   _onFirebaseStarsUpdate: function (stars) {
@@ -694,7 +694,7 @@ window.animalGame = {
    * This prevents double-counting when both clients see the same collision.
    * 
    * @param {string} starId - Unique identifier of the collected star
-   * @memberof animalGame
+   * @memberof fishGame
    */
   onStarCollected: function (starId) {
     if (!starId) return;
@@ -707,23 +707,23 @@ window.animalGame = {
     this.firebaseStars = result.remainingStars;
 
     // Sync to Firebase (triggers sync to all clients)
-    firebaseSet("animal-game/score", result.newScore);
-    firebaseSet("animal-game/stars", result.remainingStars);
+    firebaseSet("fish-game/score", result.newScore);
+    firebaseSet("fish-game/stars", result.remainingStars);
     this._updateScoreDisplay();
-    console.log(`[AnimalGame] Star collected and removed from Firebase: ${starId}`);
+    console.log(`[FishGame] Star collected and removed from Firebase: ${starId}`);
   },
 
   // ========================================================================
-  // ANIMAL TYPE MANAGEMENT
-  // These methods handle switching between different animal cursor types
+  // FISH TYPE MANAGEMENT
+  // These methods handle switching between different fish cursor types
   // (Currently only fish is implemented)
   // ========================================================================
 
   /**
-   * Sets the current animal type and syncs to Firebase.
+   * Sets the current fish type and syncs to Firebase.
    * 
-   * @param {string} type - Animal type identifier (e.g., "animal-game/fish")
-   * @memberof animalGame
+   * @param {string} type - Fish type identifier (e.g., "fish-game/fish")
+   * @memberof fishGame
    */
   setAppType: function (type) {
     if (this.currentType !== type) {
@@ -732,21 +732,21 @@ window.animalGame = {
 
       // Sync to Firebase unless we're processing a remote change
       if (!this._isSyncingFromRemote) {
-        firebaseSet("animal-game/currentType", type);
+        firebaseSet("fish-game/currentType", type);
       }
     }
   },
 
   /**
-   * Requests a switch to a different animal type via Firebase.
+   * Requests a switch to a different fish type via Firebase.
    * The actual switch happens when Firebase notifies all clients.
    * 
-   * @param {string} type - Animal type to switch to
-   * @memberof animalGame
+   * @param {string} type - Fish type to switch to
+   * @memberof fishGame
    */
   requestSwitch: function (type) {
     if (type) {
-      firebaseSet("animal-game/currentType", type);
+      firebaseSet("fish-game/currentType", type);
     }
   },
 
@@ -759,7 +759,7 @@ window.animalGame = {
    * 3. Configure grid size and sync stars
    * 4. Update body attribute for CSS styling
    * 
-   * @memberof animalGame
+   * @memberof fishGame
    * @private
    */
   _switchToFish: function () {
@@ -787,8 +787,8 @@ window.animalGame = {
         this.currentCursor.syncStarsFromFirebase(this.firebaseStars);
       }
 
-      this.currentType = "animal-game/fish";
-      document.body.setAttribute("app-type", "animal-game/fish");
+      this.currentType = "fish-game/fish";
+      document.body.setAttribute("app-type", "fish-game/fish");
       this.switching = false;
     });
   },
@@ -797,7 +797,7 @@ window.animalGame = {
    * Destroys the current cursor and cleans up resources.
    * 
    * @returns {Promise} Resolves when destruction is complete
-   * @memberof animalGame
+   * @memberof fishGame
    */
   destroyCurrentCursor: function () {
     if (this.currentCursor && this.currentCursor.destroy) {
@@ -817,7 +817,7 @@ window.animalGame = {
    * @param {number} y - Pointer Y coordinate (screen pixels)
    * @param {string|null} color - Optional color for pointer visualization
    * @param {boolean} isParticipant - true if from participant, false if from host
-   * @memberof animalGame
+   * @memberof fishGame
    */
   updatePointerPosition: function (x, y, color = null, isParticipant = false) {
     if (!this.currentCursor || !this.currentCursor.inputManager) return;
@@ -843,7 +843,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // --------------------------------------------------------------------------
   // STEP 1: Initialize the fish cursor
   // --------------------------------------------------------------------------
-  window.animalGame._switchToFish();
+  window.fishGame._switchToFish();
 
   // --------------------------------------------------------------------------
   // STEP 2: Local mouse input
@@ -853,81 +853,81 @@ document.addEventListener("DOMContentLoaded", () => {
   // In multiplayer mode, only participant input affects the fish.
   // --------------------------------------------------------------------------
   document.addEventListener("mousemove", (e) => {
-    window.animalGame.updatePointerPosition(e.clientX, e.clientY, null, !isHost);
+    window.fishGame.updatePointerPosition(e.clientX, e.clientY, null, !isHost);
   });
 
   // --------------------------------------------------------------------------
   // STEP 3: Firebase subscriptions
   // 
   // Each subscription syncs a piece of game state:
-  // - currentType: Which animal cursor is active
+  // - currentType: Which fish cursor is active
   // - gridSize: Star grid dimension (1-4)
   // - score: Stars collected
   // - gameMode: single-player vs multiplayer
   // - stars: Array of star positions (handled separately)
   // --------------------------------------------------------------------------
 
-  // Animal type sync (for future multi-animal support)
-  firebaseOnValue("animal-game/currentType", (value) => {
-    if (value !== window.animalGame.currentType) {
-      const methodName = ANIMAL_TYPE_METHODS[value];
-      if (methodName && typeof window.animalGame[methodName] === "function") {
+  // Fish type sync (for future multi-fish support)
+  firebaseOnValue("fish-game/currentType", (value) => {
+    if (value !== window.fishGame.currentType) {
+      const methodName = FISH_TYPE_METHODS[value];
+      if (methodName && typeof window.fishGame[methodName] === "function") {
         // Set flag to prevent write-back loop
-        window.animalGame._isSyncingFromRemote = true;
-        window.animalGame[methodName]();
-        window.animalGame._isSyncingFromRemote = false;
+        window.fishGame._isSyncingFromRemote = true;
+        window.fishGame[methodName]();
+        window.fishGame._isSyncingFromRemote = false;
       }
     }
   });
 
   // Grid size sync
   // When size changes: update cursor, recreate control grid, regenerate stars
-  firebaseOnValue("animal-game/gridSize", (value) => {
+  firebaseOnValue("fish-game/gridSize", (value) => {
     // Use GameService to validate grid size (pure logic)
     const validatedSize = gameService.validateGridSize(value);
-    const sizeChanged = window.animalGame.gridSize !== validatedSize;
+    const sizeChanged = window.fishGame.gridSize !== validatedSize;
 
     if (sizeChanged) {
       // Update service and local state
       gameService.setGridSize(validatedSize);
-      window.animalGame.gridSize = validatedSize;
+      window.fishGame.gridSize = validatedSize;
 
       // Update WebGL cursor's star grid
-      if (window.animalGame.currentCursor) {
-        window.animalGame.currentCursor.setStarGrid(validatedSize);
+      if (window.fishGame.currentCursor) {
+        window.fishGame.currentCursor.setStarGrid(validatedSize);
       }
 
       // Recreate host control grid with new dimensions
-      window.animalGame._createStarControlGrid();
+      window.fishGame._createStarControlGrid();
 
       // In single-player: new grid size means regenerate stars
-      if (!window.animalGame.isMultiplayerMode && window.animalGame.isHost) {
-        window.animalGame._generateRandomStarsToFirebase();
+      if (!window.fishGame.isMultiplayerMode && window.fishGame.isHost) {
+        window.fishGame._generateRandomStarsToFirebase();
       }
     }
   });
 
   // Create score display UI
-  window.animalGame._createScoreDisplay();
+  window.fishGame._createScoreDisplay();
 
   // Score sync - updates display when any client collects stars
-  firebaseOnValue("animal-game/score", (value) => {
+  firebaseOnValue("fish-game/score", (value) => {
     const score = Number(value);
     if (Number.isFinite(score) && score >= 0) {
       // Sync to service and local state
       gameService.setScore(score);
-      window.animalGame.score = score;
-      window.animalGame._updateScoreDisplay();
+      window.fishGame.score = score;
+      window.fishGame._updateScoreDisplay();
     }
   });
 
   // Initialize Firebase star sync (both host and participant need this)
   // This subscription handles the core multiplayer star synchronization
-  window.animalGame._initializeFirebaseStarsSync();
+  window.fishGame._initializeFirebaseStarsSync();
 
   // Game mode sync - switches between single-player and multiplayer
-  firebaseOnValue("animal-game/gameMode", (value) => {
-    window.animalGame._setGameMode(value);
+  firebaseOnValue("fish-game/gameMode", (value) => {
+    window.fishGame._setGameMode(value);
   });
 
   // --------------------------------------------------------------------------
@@ -945,7 +945,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // --------------------------------------------------------------------------
   addCursorListener((data) => {
     const isParticipant = data.user.includes("participant");
-    window.animalGame.updatePointerPosition(data.x, data.y, null, isParticipant);
+    window.fishGame.updatePointerPosition(data.x, data.y, null, isParticipant);
   });
 
   // --------------------------------------------------------------------------
@@ -966,9 +966,9 @@ document.addEventListener("DOMContentLoaded", () => {
       type: "action",
     },
     () => {
-      const newSize = Math.min(4, window.animalGame.gridSize + 1);
-      if (newSize !== window.animalGame.gridSize) {
-        firebaseSet("animal-game/gridSize", newSize);
+      const newSize = Math.min(4, window.fishGame.gridSize + 1);
+      if (newSize !== window.fishGame.gridSize) {
+        firebaseSet("fish-game/gridSize", newSize);
       }
     }
   );
@@ -984,9 +984,9 @@ document.addEventListener("DOMContentLoaded", () => {
       type: "action",
     },
     () => {
-      const newSize = Math.max(1, window.animalGame.gridSize - 1);
-      if (newSize !== window.animalGame.gridSize) {
-        firebaseSet("animal-game/gridSize", newSize);
+      const newSize = Math.max(1, window.fishGame.gridSize - 1);
+      if (newSize !== window.fishGame.gridSize) {
+        firebaseSet("fish-game/gridSize", newSize);
       }
     }
   );
@@ -1004,8 +1004,8 @@ document.addEventListener("DOMContentLoaded", () => {
     },
     () => {
       // Toggle between modes
-      const newMode = window.animalGame.isMultiplayerMode ? "single-player" : "multiplayer";
-      firebaseSet("animal-game/gameMode", newMode);
+      const newMode = window.fishGame.isMultiplayerMode ? "single-player" : "multiplayer";
+      firebaseSet("fish-game/gameMode", newMode);
     }
   );
 });

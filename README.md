@@ -1,5 +1,5 @@
-# squidly-animal-game
-Several cause effect animal games for Squidly platform
+# squidly-fish-game
+A cause effect fish games for Squidly platform
 
 ## System Doc
 
@@ -19,7 +19,7 @@ Key roles:
 ### Initialization Flow (Runtime Boot)
 1. Host-only defaults: `app.js` sets initial Firebase keys if missing
    (`currentType`, `gridSize`, `score`, `gameMode`). Participants do not write.
-2. Cursor setup: `window.animalGame._switchToFish()` creates `WebGLFishCursor`
+2. Cursor setup: `window.fishGame._switchToFish()` creates `WebGLFishCursor`
    and connects the `onStarCollected` callback.
 3. Input wiring:
    - Local mouse events update the active pointer (host or participant ID).
@@ -31,8 +31,8 @@ Key roles:
    - Multiplayer grid UI is created if the mode requires it.
 
 ### Firebase Data Model
-All shared data is under `animal-game/`:
-- `currentType`: active animal type (currently `animal-game/fish`).
+All shared data is under `fish-game/`:
+- `currentType`: active fish type (currently `fish-game/fish`).
 - `gridSize`: star grid size (1-4). Drives both UI grid and star placement.
 - `score`: shared score, incremented on collection.
 - `gameMode`: `single-player` or `multiplayer`.
@@ -79,7 +79,7 @@ flowchart TD
 ### Star Lifecycle (Step-by-Step)
 1. Star generation:
    - Host calls `GameService.generateRandomStars(gridSize)` in single-player.
-   - Host writes the result to Firebase at `animal-game/stars`.
+   - Host writes the result to Firebase at `fish-game/stars`.
 2. Star sync:
    - `app.js` receives Firebase star changes and updates `firebaseStars`.
    - `app.js` calls `currentCursor.syncStarsFromFirebase(...)`.

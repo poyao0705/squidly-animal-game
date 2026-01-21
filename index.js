@@ -1,5 +1,5 @@
 /**
- * Squidly Animal Game - Library
+ * Squidly Fish Game - Library
  */
 
 import WebGLFishCursor from './fish-cursor.js';

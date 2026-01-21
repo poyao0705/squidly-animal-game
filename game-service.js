@@ -3,7 +3,7 @@
  * 
  * This module contains all game business logic without any dependencies on
  * Firebase, DOM, or external APIs. It provides pure functions and state management
- * for the animal game.
+ * for the fish game.
  * 
  * ## Design Principles
  * - No Firebase calls

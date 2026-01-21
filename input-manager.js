@@ -1,5 +1,5 @@
 /**
- * Input Manager for Animal Game
+ * Input Manager for Fish Game
  * 
  * A minimal pointer storage system for tracking cursor positions.
  * Host/participant logic is handled by app.js for per-app customization.
