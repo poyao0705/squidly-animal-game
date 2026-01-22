@@ -5,26 +5,6 @@
  * fish star-collecting game. It serves as the bridge between the WebGL renderer
  * (fish-cursor.js) and the Squidly platform APIs (Firebase, cursor listeners).
  * 
- * ## Architecture Overview
- * 
- * ```
- * ┌─────────────────────────────────────────────────────────────────┐
- * │                        app.js (this file)                       │
- * │                                                                 │
- * │  ┌─────────────────┐  ┌─────────────────┐  ┌────────────────┐  │
- * │  │   FishGame      │  │  Firebase Sync  │  │   UI Elements  │  │
- * │  │   (Class)       │◄─┤  (Multiplayer)  │  │ (Score, Grid)  │  │
- * │  └────────┬────────┘  └────────┬────────┘  └───────┬────────┘  │
- * │           │                    │                   │           │
- * └───────────┼────────────────────┼───────────────────┼───────────┘
- *             │                    │                   │
- *             ▼                    ▼                   ▼
- *     ┌───────────────┐    ┌─────────────┐    ┌──────────────┐
- *     │ WebGLFishCursor│    │   Firebase  │    │     DOM      │
- *     │ (fish-cursor.js)│    │   Database  │    │   (HTML)     │
- *     └───────────────┘    └─────────────┘    └──────────────┘
- * ```
- * 
  * ## Game Modes
  * 
  * ### Single-Player Mode (default)
