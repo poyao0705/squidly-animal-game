@@ -47,6 +47,7 @@
 
 import { WebGLFishCursor } from "./index.js";
 import GameService from "./game-service.js";
+import "https://v3.squidly.com.au/src/Utilities/Buttons/access-buttons.js";
 
 /**
  * FishGame - Main game controller class
@@ -788,7 +789,7 @@ class FishGame {
     let cellIndex = 0;
     for (let row = 0; row < this.gridSize; row++) {
       for (let col = 0; col < this.gridSize; col++) {
-        const cell = document.createElement("div");
+        const cell = document.createElement("access-button");
         cell.className = "star-control-cell";
         cell.dataset.row = row;
         cell.dataset.col = col;
@@ -849,7 +850,7 @@ class FishGame {
         }
       });
     }
-    
+
     if (this._starGridElement) {
       this._starGridElement.remove();
       this._starGridElement = null;
