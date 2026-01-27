@@ -793,6 +793,10 @@ class FishGame {
         cell.className = "star-control-cell";
         cell.dataset.row = row;
         cell.dataset.col = col;
+        
+        // Set attributes for auto-registration
+        cell.setAttribute("access-group", "star-grid");
+        cell.setAttribute("access-order", cellIndex);
 
         // Star emoji inside cell
         const starIcon = document.createElement("span");
@@ -812,12 +816,6 @@ class FishGame {
 
         grid.appendChild(cell);
         this._starCells.push({ row, col, element: cell });
-
-        // Register as access button with parent app
-        if (typeof registerAccessButton === "function") {
-          const buttonId = registerAccessButton(cell, "star-grid", cellIndex);
-          cell.dataset.accessButtonId = buttonId;
-        }
         cellIndex++;
       }
     }
@@ -827,11 +825,6 @@ class FishGame {
 
     // Apply initial cell states based on current Firebase stars
     this._updateStarCellStates();
-
-    // Update access button states now that grid is in DOM
-    if (typeof updateAccessButtonStates === "function") {
-      updateAccessButtonStates();
-    }
   }
 
   /**
@@ -842,15 +835,7 @@ class FishGame {
    * @private
    */
   _destroyStarControlGrid() {
-    // Unregister all access buttons before destroying
-    if (this._starCells && typeof unregisterAccessButton === "function") {
-      this._starCells.forEach(({ element }) => {
-        if (element.dataset.accessButtonId) {
-          unregisterAccessButton(element.dataset.accessButtonId);
-        }
-      });
-    }
-
+    // Access buttons are auto-unregistered when removed from DOM
     if (this._starGridElement) {
       this._starGridElement.remove();
       this._starGridElement = null;
