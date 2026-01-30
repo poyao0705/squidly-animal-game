@@ -289,6 +289,14 @@ class WebGLFishCursor {
     }
 
     /**
+     * Update host status (for identity swapping).
+     * @param {boolean} isHost - Whether this client is now the host
+     */
+    setIsHost(isHost) {
+        this.isHost = isHost;
+    }
+
+    /**
      * Creates the 3D fish mesh with all its components.
      * 
      * ## Fish Anatomy (all measurements in Three.js units, scaled by config.SCALE)

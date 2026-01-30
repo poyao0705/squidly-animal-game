@@ -92,7 +92,13 @@ class FishGame {
      * - Cannot control fish in multiplayer mode
      * @type {boolean}
      */
-    this.isHost = hasSessionInfo ? session_info?.user === "host" : true;
+    this._realIsHost = hasSessionInfo ? session_info?.user === "host" : true;
+
+    /**
+     * Identity swap active state.
+     * @type {boolean}
+     */
+    this._isSwapped = false;
 
     console.log("[FishGame] Session info:", { hasSessionInfo, isHost: this.isHost });
 
@@ -161,6 +167,13 @@ class FishGame {
      */
     this._starCells = [];
 
+    /**
+     * Key for the swap button icon (to allow removal).
+     * @type {string|null}
+     * @private
+     */
+    this._swapButtonKey = null;
+
     // ========================================================================
     // MODE FLAGS
     // ========================================================================
@@ -207,6 +220,31 @@ class FishGame {
   // ==========================================================================
   // INITIALIZATION METHODS
   // ==========================================================================
+
+  /**
+   * Gets the effective host status, accounting for identity swap.
+   * @readonly
+   */
+  get isHost() {
+    return this._isSwapped ? !this._realIsHost : this._realIsHost;
+  }
+
+  /**
+   * Swaps the identity of the current user (Host <-> Participant).
+   * 
+   * - Host becomes Participant (controls fish, loses grid)
+   * - Participant becomes Host (controls grid, loses fish)
+   */
+  toggleIdentitySwap() {
+    // Identity swap is only available in multiplayer mode
+    if (!this.isMultiplayerMode) {
+      console.warn("[FishGame] Cannot swap identity in single-player mode.");
+      return;
+    }
+
+    // Write new state to Firebase - listener will handle local update
+    firebaseSet("fish-game/isSwapped", !this._isSwapped);
+  }
 
   /**
    * Initializes the game after DOM is ready.
@@ -301,6 +339,12 @@ class FishGame {
         firebaseSet("fish-game/gameMode", "single-player");
       }
     }, { onlyOnce: true });
+
+    firebaseOnValue("fish-game/isSwapped", (value) => {
+      if (value === null || value === undefined) {
+        firebaseSet("fish-game/isSwapped", false);
+      }
+    }, { onlyOnce: true });
   }
 
   /**
@@ -329,7 +373,13 @@ class FishGame {
     // - "host-eyes" / "host-mouse" - Input from the host
     // - "participant-eyes" / "participant-mouse" - Input from participant
     addCursorListener((data) => {
-      const isParticipant = data.user.includes("participant");
+      let isParticipant = data.user.includes("participant");
+      
+      // If identities are swapped, flip the interpretation of the input source
+      if (this._isSwapped) {
+        isParticipant = !isParticipant;
+      }
+      
       this.updatePointerPosition(data.x, data.y, null, isParticipant);
     });
   }
@@ -390,6 +440,29 @@ class FishGame {
     firebaseOnValue("fish-game/gameMode", (value) => {
       this._setGameMode(value);
     });
+
+    // Identity swap sync
+    firebaseOnValue("fish-game/isSwapped", (value) => {
+      const isSwapped = value === true;
+      if (this._isSwapped !== isSwapped) {
+        this._isSwapped = isSwapped;
+        console.log(`[FishGame] Synced identity swap. Effective isHost: ${this.isHost}, Real: ${this._realIsHost}`);
+        
+        // Update WebGL cursor logic
+        if (this.currentCursor) {
+          this.currentCursor.setIsHost(this.isHost);
+        }
+
+        // Refresh UI based on new role if in multiplayer
+        if (this.isMultiplayerMode) {
+          if (this.isHost) {
+            this._createStarControlGrid();
+          } else {
+            this._destroyStarControlGrid();
+          }
+        }
+      }
+    });
   }
 
   /**
@@ -435,23 +508,8 @@ class FishGame {
       }
     );
 
-    // Game mode TOGGLE button
-    // Shows what clicking will switch TO (not current mode)
-    // Initial state: shows "Multiplayer" (click to switch to multiplayer)
-    // setIcon(
-    //   3,    // Row 3
-    //   0,    // Column 0
-    //   {
-    //     symbol: "group",           // Group icon (will switch to multiplayer)
-    //     displayValue: "Multiplayer",
-    //     type: "action",
-    //   },
-    //   () => {
-    //     // Toggle between modes
-    //     const newMode = this.isMultiplayerMode ? "single-player" : "multiplayer";
-    //     firebaseSet("fish-game/gameMode", newMode);
-    //   }
-    // );
+    // Initial update of swap button visibility
+    this._updateSwapButtonVisibility();
   }
 
   /**
@@ -533,6 +591,18 @@ class FishGame {
       }
     } else if (modeResult.shouldGenerateStars) {
       // SINGLE-PLAYER MODE: Hide manual grid UI and auto-generate random stars
+      
+      // RESET IDENTITY SWAP when switching to single-player
+      if (this._isSwapped) {
+        firebaseSet("fish-game/isSwapped", false);
+        // Optimistically update local state so isHost returns true immediately
+        // This ensures _generateRandomStarsToFirebase() runs below
+        this._isSwapped = false;
+        if (this.currentCursor) {
+            this.currentCursor.setIsHost(this.isHost);
+        }
+      }
+
       this._destroyStarControlGrid();
       if (this.isHost) {
         this._generateRandomStarsToFirebase();
@@ -543,6 +613,9 @@ class FishGame {
     if (this.currentCursor && this.currentCursor.setMultiplayerMode) {
       this.currentCursor.setMultiplayerMode(modeResult.isMultiplayer);
     }
+
+    // Update the swap button visibility
+    this._updateSwapButtonVisibility();
 
     // Update the sidebar icon to show what mode we'll switch TO
     // this._updateModeIcon();
@@ -774,6 +847,36 @@ class FishGame {
     container.appendChild(starIcon);
     container.appendChild(this._scoreElement);
     document.body.appendChild(container);
+  }
+
+  /**
+   * Updates the visibility of the swap button based on game mode.
+   * Only shows in multiplayer mode.
+   * 
+   * @memberof FishGame
+   * @private
+   */
+  _updateSwapButtonVisibility() {
+    // Remove existing button if present to prevent icon accumulation
+    if (this._swapButtonKey) {
+      removeIcon(this._swapButtonKey);
+      this._swapButtonKey = null;
+    }
+
+    if (this.isMultiplayerMode) {
+      this._swapButtonKey = setIcon(
+        3,    // Row 3
+        0,    // Column 0
+        {
+          symbol: "switch",
+          displayValue: "Switch Mode",
+          type: "action",
+        },
+        () => {
+          this.toggleIdentitySwap();
+        }
+      );
+    }
   }
 
   /**
