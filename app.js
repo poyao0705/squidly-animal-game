@@ -2,13 +2,11 @@
  * @fileoverview Squidly Fish Game - Main Application Controller
  * 
  * This module manages the game state, Firebase synchronization, and coordinates
- * between the logic (GameService), Identity (IdentityManager), UI (GameUI),
- * and Renderer (WebGLFishCursor).
+ * between the logic (GameService), UI (GameUI), and Renderer (WebGLFishCursor).
  */
 
 import { WebGLFishCursor } from "./index.js";
 import GameService from "./game-service.js";
-import { IdentityManager } from "./identity-manager.js";
 import { GameUI } from "./game-ui.js";
 
 /**
@@ -18,9 +16,14 @@ class FishGame {
   constructor() {
     // 1. Identity Management
     // ------------------------------------------------------------------------
-    this._identityManager = new IdentityManager(
-      typeof session_info !== "undefined" ? session_info : null
-    );
+    const sessionInfo = typeof session_info !== "undefined" ? session_info : null;
+    const hasSessionInfo = sessionInfo != null;
+    
+    // Determine real host logic
+    this._realIsHost = hasSessionInfo ? sessionInfo?.user === "host" : true;
+    this._isSwapped = false;
+
+    console.log("[FishGame] Initialized. Real IsHost:", this._realIsHost);
 
     // 2. Core Logic Service
     // ------------------------------------------------------------------------
@@ -41,7 +44,7 @@ class FishGame {
     // Sync flags
     this._firebaseStarsSyncInitialized = false;
 
-    console.log("[FishGame] Initialized.");
+    console.log("[FishGame] Controller ready.");
   }
 
   // ==========================================================================
@@ -49,7 +52,7 @@ class FishGame {
   // ==========================================================================
   
   get isHost() {
-    return this._identityManager.isHost;
+    return this._isSwapped ? !this._realIsHost : this._realIsHost;
   }
 
   // ==========================================================================
@@ -110,10 +113,6 @@ class FishGame {
     document.addEventListener("mousemove", (e) => {
       // In single player: host controls.
       // In multiplayer: participant controls.
-      // But pointer validation happens in updatePointerPosition logic or renderer?
-      // Original logic: updatePointerPosition(..., !this.isHost)
-      // Wait, original: !this.isHost passed "isParticipant".
-      // If I am Host, isParticipant = false. Correct.
       this.updatePointerPosition(e.clientX, e.clientY, null, !this.isHost);
     });
 
@@ -121,10 +120,8 @@ class FishGame {
     addCursorListener((data) => {
         let isParticipant = data.user.includes("participant");
         
-        // Swap logic logic handled here previously? 
-        // Original: if (this._isSwapped) isParticipant = !isParticipant;
-        // Let's use IdentityManager's isSwapped check.
-        if (this._identityManager.isSwapped) {
+        // Swap logic
+        if (this._isSwapped) {
             isParticipant = !isParticipant;
         }
         
@@ -207,9 +204,11 @@ class FishGame {
     // 5. Swap State
     firebaseOnValue("fish-game/isSwapped", (value) => {
         const isSwapped = value === true;
-        const changed = this._identityManager.setSwapState(isSwapped);
         
-        if (changed) {
+        if (this._isSwapped !== isSwapped) {
+            this._isSwapped = isSwapped;
+            console.log(`[FishGame] Swap state changed to: ${isSwapped}. Effective IsHost: ${this.isHost}`);
+            
             if (this.currentCursor) {
                 this.currentCursor.setIsHost(this.isHost);
             }
@@ -272,10 +271,10 @@ class FishGame {
         this._updateStarGridUI();
     } else if (result.shouldGenerateStars) {
         // Single Player: Reset swap, hide grid, generate stars
-        if (this._identityManager.isSwapped) {
+        if (this._isSwapped) {
             firebaseSet("fish-game/isSwapped", false);
             // Optimistic update for immediate logic
-            this._identityManager.setSwapState(false); 
+            this._isSwapped = false;
             if (this.currentCursor) this.currentCursor.setIsHost(this.isHost);
         }
 
@@ -303,7 +302,7 @@ class FishGame {
         console.warn("[FishGame] Cannot swap in single-player.");
         return;
     }
-    firebaseSet("fish-game/isSwapped", !this._identityManager.isSwapped);
+    firebaseSet("fish-game/isSwapped", !this._isSwapped);
   }
 
   _updateStarGridUI() {
