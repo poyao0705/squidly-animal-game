@@ -1,1073 +1,377 @@
 /**
  * @fileoverview Squidly Fish Game - Main Application Controller
  * 
- * This module manages the game state, Firebase synchronization, and UI for the
- * fish star-collecting game. It serves as the bridge between the WebGL renderer
- * (fish-cursor.js) and the Squidly platform APIs (Firebase, cursor listeners).
- * 
- * ## Game Modes
- * 
- * ### Single-Player Mode (default)
- * - Host controls the fish with their mouse/eye tracker
- * - Stars are randomly generated when collected
- * - Good for solo play or demos
- * 
- * ### Multiplayer Mode
- * - **Host**: Cannot control fish, instead uses grid UI to place stars
- * - **Participant**: Controls fish with their input, collects stars
- * - Stars sync via Firebase so both see the same state
- * - Score syncs via Firebase for shared display
- * 
- * ## External Dependencies (provided by Squidly platform)
- * 
- * These globals are injected by the Squidly platform:
- * - `session_info` - Object with { user: "host"|"participant" }
- * - `firebaseSet(path, value)` - Write to Firebase Realtime Database
- * - `firebaseOnValue(path, callback, options)` - Subscribe to Firebase changes
- * - `addCursorListener(callback)` - Receive cursor/eye-tracking data
- * - `setIcon(row, col, config, onClick)` - Add UI icons to sidebar
- * 
- * ## Firebase Data Structure
- * 
- * ```
- * fish-game/
- * ├── gridSize: 4                          // Star grid dimension (1-4)
- * ├── score: 0                             // Current score
- * ├── gameMode: "single-player"|"multiplayer"
- * └── stars: [                             // Array of star objects
- *       { id: "star_0_1_123...", row: 0, col: 1 },
- *       { id: "star_2_3_456...", row: 2, col: 3 },
- *       ...
- *     ]
- * ```
- * 
- * @module FishGame
- * @requires WebGLFishCursor from ./index.js
+ * This module manages the game state, Firebase synchronization, and coordinates
+ * between the logic (GameService), Identity (IdentityManager), UI (GameUI),
+ * and Renderer (WebGLFishCursor).
  */
 
 import { WebGLFishCursor } from "./index.js";
 import GameService from "./game-service.js";
-import "https://v3.squidly.com.au/src/Utilities/Buttons/access-buttons.js";
+import { IdentityManager } from "./identity-manager.js";
+import { GameUI } from "./game-ui.js";
 
 /**
  * FishGame - Main game controller class
- * 
- * Manages all game state, Firebase synchronization, and UI for the fish
- * star-collecting game. Exposed as `window.fishGame` for platform access.
- * 
- * @class
- * @example
- * // Create and initialize the game
- * const game = new FishGame();
- * document.addEventListener("DOMContentLoaded", () => game.init());
  */
 class FishGame {
-  /**
-   * Creates a new FishGame instance.
-   * 
-   * Initializes all game state but does NOT start the game.
-   * Call init() after DOMContentLoaded to begin.
-   * 
-   * @constructor
-   */
   constructor() {
-    // ========================================================================
-    // HOST DETECTION
-    // ========================================================================
+    // 1. Identity Management
+    // ------------------------------------------------------------------------
+    this._identityManager = new IdentityManager(
+      typeof session_info !== "undefined" ? session_info : null
+    );
 
-    /**
-     * Whether session_info is available from the Squidly platform.
-     * @type {boolean}
-     * @private
-     */
-    const hasSessionInfo = typeof session_info !== "undefined" && session_info != null;
+    // 2. Core Logic Service
+    // ------------------------------------------------------------------------
+    this._gameService = new GameService();
 
-    /**
-     * Whether this client is the host (vs participant).
-     * Determined at startup from session_info.
-     * 
-     * Host responsibilities:
-     * - Initialize Firebase default values
-     * - Place stars in multiplayer mode
-     * - Cannot control fish in multiplayer mode
-     * @type {boolean}
-     */
-    this._realIsHost = hasSessionInfo ? session_info?.user === "host" : true;
+    // 3. UI Manager
+    // ------------------------------------------------------------------------
+    this._ui = new GameUI();
 
-    /**
-     * Identity swap active state.
-     * @type {boolean}
-     */
-    this._isSwapped = false;
-
-    console.log("[FishGame] Session info:", { hasSessionInfo, isHost: this.isHost });
-
-    // ========================================================================
-    // CORE STATE
-    // ========================================================================
-
-    /**
-     * Reference to the active WebGLFishCursor instance.
-     * Provides access to the 3D renderer and its methods.
-     * @type {WebGLFishCursor|null}
-     */
+    // 4. State
+    // ------------------------------------------------------------------------
     this.currentCursor = null;
-
-    /**
-     * Flag to prevent Firebase write loops during sync.
-     * When true, local changes won't trigger Firebase writes.
-     * @type {boolean}
-     * @private
-     */
-    this._isSyncingFromRemote = false;
-
-    // ========================================================================
-    // GAME SETTINGS
-    // ========================================================================
-
-    /**
-     * Star grid dimension (1-4). Creates an NxN grid for star placement.
-     * - 1: Single star position
-     * - 4: 4x4 = 16 possible positions (default)
-     * @type {number}
-     */
     this.gridSize = 4;
-
-    /**
-     * Current game score (stars collected).
-     * Synced with Firebase for shared display.
-     * @type {number}
-     */
     this.score = 0;
-
-    // ========================================================================
-    // UI ELEMENT REFERENCES
-    // ========================================================================
-
-    /**
-     * Reference to the score number span element.
-     * Updated when score changes.
-     * @type {HTMLElement|null}
-     * @private
-     */
-    this._scoreElement = null;
-
-    /**
-     * Reference to the star control grid container (host only, multiplayer).
-     * @type {HTMLElement|null}
-     * @private
-     */
-    this._starGridElement = null;
-
-    /**
-     * Array of star cell UI elements with their grid positions.
-     * Format: [{ row, col, element }, ...]
-     * @type {Array<{row: number, col: number, element: HTMLElement}>}
-     * @private
-     */
-    this._starCells = [];
-
-    /**
-     * Key for the swap button icon (to allow removal).
-     * @type {string|null}
-     * @private
-     */
-    this._swapButtonKey = null;
-
-    // ========================================================================
-    // MODE FLAGS
-    // ========================================================================
-
-    /**
-     * Whether multiplayer mode is active.
-     * - false: Single-player (host controls fish, random stars)
-     * - true: Multiplayer (participant controls fish, host places stars)
-     * @type {boolean}
-     */
     this.isMultiplayerMode = false;
-
-    // ========================================================================
-    // FIREBASE SYNC STATE
-    // ========================================================================
-
-    /**
-     * Local cache of star data from Firebase.
-     * Array of { id, row, col } objects representing current stars.
-     * @type {Array<{id: string, row: number, col: number}>}
-     */
     this.firebaseStars = [];
-
-    /**
-     * Whether Firebase star listener has been set up.
-     * Prevents duplicate listeners.
-     * @type {boolean}
-     * @private
-     */
+    
+    // Sync flags
     this._firebaseStarsSyncInitialized = false;
 
-    // ========================================================================
-    // GAME SERVICE
-    // ========================================================================
-
-    /**
-     * Pure game logic service layer.
-     * @type {GameService}
-     * @private
-     */
-    this._gameService = new GameService();
+    console.log("[FishGame] Initialized.");
   }
 
   // ==========================================================================
-  // INITIALIZATION METHODS
+  // Getters Delegates
   // ==========================================================================
-
-  /**
-   * Gets the effective host status, accounting for identity swap.
-   * @readonly
-   */
+  
   get isHost() {
-    return this._isSwapped ? !this._realIsHost : this._realIsHost;
+    return this._identityManager.isHost;
   }
 
-  /**
-   * Swaps the identity of the current user (Host <-> Participant).
-   * 
-   * - Host becomes Participant (controls fish, loses grid)
-   * - Participant becomes Host (controls grid, loses fish)
-   */
-  toggleIdentitySwap() {
-    // Identity swap is only available in multiplayer mode
-    if (!this.isMultiplayerMode) {
-      console.warn("[FishGame] Cannot swap identity in single-player mode.");
-      return;
-    }
+  // ==========================================================================
+  // INITIALIZATION
+  // ==========================================================================
 
-    // Write new state to Firebase - listener will handle local update
-    firebaseSet("fish-game/isSwapped", !this._isSwapped);
-  }
-
-  /**
-   * Initializes the game after DOM is ready.
-   * 
-   * This method should be called once after DOMContentLoaded.
-   * It initializes:
-   * 1. Host defaults in Firebase (if host)
-   * 2. WebGL fish cursor
-   * 3. Event listeners
-   * 4. Firebase subscriptions
-   * 5. Sidebar icons
-   * 
-   * @memberof FishGame
-   */
   init() {
-    // Initialize host defaults first (only runs for host)
     this._initializeHostDefaults();
-
-    // Initialize the WebGL fish cursor
     this._initFishCursor();
-
-    // Set up event listeners (mouse, cursor API)
     this._setupEventListeners();
-
-    // Set up Firebase subscriptions
     this._setupFirebaseSubscriptions();
-
-    // Set up sidebar icons
     this._setupSidebarIcons();
-
-    // Set up session listeners (auto-switch mode)
     this._setupSessionListeners();
+    
+    // Initialize UI components
+    this._ui.init(this.score);
   }
 
-  /**
-   * Initializes the fish cursor.
-   * 
-   * Process:
-   * 1. Create new WebGLFishCursor with current settings
-   * 2. Configure grid size and sync stars
-   * 
-   * @memberof FishGame
-   * @private
-   */
   _initFishCursor() {
-    // Create new fish cursor with current mode settings
     this.currentCursor = new WebGLFishCursor({
       isMultiplayerMode: this.isMultiplayerMode,
       isHost: this.isHost,
-      onStarCollected: (starId) => {
-        this.onStarCollected(starId);
-      },
+      onStarCollected: (starId) => this.onStarCollected(starId),
     });
 
-    // Apply current grid size
     this.currentCursor.setStarGrid(this.gridSize);
 
-    // Sync existing stars from Firebase
     if (this.isMultiplayerMode) {
       this.currentCursor.syncStarsFromFirebase(this.firebaseStars);
     }
   }
 
-  /**
-   * Initializes Firebase default values for host.
-   * 
-   * Only the host initializes defaults to prevent race conditions
-   * and avoid resetting values (especially score) when participants join.
-   * 
-   * @memberof FishGame
-   * @private
-   */
   _initializeHostDefaults() {
     if (!this.isHost) return;
 
-    // Use firebaseOnValue to check if values exist before setting defaults
-    // This prevents overwriting existing game state on page reload
-    firebaseOnValue("fish-game/gridSize", (value) => {
-      if (value === null || value === undefined) {
-        firebaseSet("fish-game/gridSize", 4);
-      }
-    }, { onlyOnce: true });
+    const defaults = {
+      gridSize: 4,
+      score: 0,
+      gameMode: "single-player",
+      isSwapped: false
+    };
 
-    firebaseOnValue("fish-game/score", (value) => {
-      if (value === null || value === undefined) {
-        firebaseSet("fish-game/score", 0);
-      }
-    }, { onlyOnce: true });
-
-    firebaseOnValue("fish-game/gameMode", (value) => {
-      if (value === null || value === undefined) {
-        firebaseSet("fish-game/gameMode", "single-player");
-      }
-    }, { onlyOnce: true });
-
-    firebaseOnValue("fish-game/isSwapped", (value) => {
-      if (value === null || value === undefined) {
-        firebaseSet("fish-game/isSwapped", false);
-      }
-    }, { onlyOnce: true });
+    Object.entries(defaults).forEach(([key, val]) => {
+      firebaseOnValue(`fish-game/${key}`, (snapshot) => {
+        if (snapshot === null || snapshot === undefined) {
+          firebaseSet(`fish-game/${key}`, val);
+        }
+      }, { onlyOnce: true });
+    });
   }
 
-  /**
-   * Sets up event listeners for input.
-   * 
-   * @memberof FishGame
-   * @private
-   */
+  // ==========================================================================
+  // SETUP & EVENT LISTENERS
+  // ==========================================================================
+
   _setupEventListeners() {
-    // Local mouse input
-    // Provides direct control from this browser window's mouse.
-    // Tagged as "host" or "participant" based on session_info.
-    // In multiplayer mode, only participant input affects the fish.
+    // Local mouse
     document.addEventListener("mousemove", (e) => {
+      // In single player: host controls.
+      // In multiplayer: participant controls.
+      // But pointer validation happens in updatePointerPosition logic or renderer?
+      // Original logic: updatePointerPosition(..., !this.isHost)
+      // Wait, original: !this.isHost passed "isParticipant".
+      // If I am Host, isParticipant = false. Correct.
       this.updatePointerPosition(e.clientX, e.clientY, null, !this.isHost);
     });
 
-    // Squidly cursor API listener
-    // Receives cursor/eye-tracking data from the Squidly platform.
-    // This is the primary input method for the game - supports:
-    // - Mouse tracking
-    // - Eye tracking
-    // - Both host and participant inputs
-    // 
-    // data.user values:
-    // - "host-eyes" / "host-mouse" - Input from the host
-    // - "participant-eyes" / "participant-mouse" - Input from participant
+    // Squidly API
     addCursorListener((data) => {
-      let isParticipant = data.user.includes("participant");
-      
-      // If identities are swapped, flip the interpretation of the input source
-      if (this._isSwapped) {
-        isParticipant = !isParticipant;
-      }
-      
-      this.updatePointerPosition(data.x, data.y, null, isParticipant);
-    });
-  }
-
-  /**
-   * Sets up Firebase subscriptions for game state sync.
-   * 
-   * @memberof FishGame
-   * @private
-   */
-  _setupFirebaseSubscriptions() {
-    // Grid size sync
-    // When size changes: update cursor, recreate control grid, regenerate stars
-    firebaseOnValue("fish-game/gridSize", (value) => {
-      // Use GameService to validate grid size (pure logic)
-      const validatedSize = this._gameService.validateGridSize(value);
-      const sizeChanged = this.gridSize !== validatedSize;
-
-      if (sizeChanged) {
-        // Update service and local state
-        this._gameService.setGridSize(validatedSize);
-        this.gridSize = validatedSize;
-
-        // Update WebGL cursor's star grid
-        if (this.currentCursor) {
-          this.currentCursor.setStarGrid(validatedSize);
-        }
-
-        // Recreate host control grid with new dimensions
-        this._createStarControlGrid();
-
-        // In single-player: new grid size means regenerate stars
-        if (!this.isMultiplayerMode && this.isHost) {
-          this._generateRandomStarsToFirebase();
-        }
-      }
-    });
-
-    // Create score display UI
-    this._createScoreDisplay();
-
-    // Score sync - updates display when any client collects stars
-    firebaseOnValue("fish-game/score", (value) => {
-      const score = Number(value);
-      if (Number.isFinite(score) && score >= 0) {
-        // Sync to service and local state
-        this._gameService.setScore(score);
-        this.score = score;
-        this._updateScoreDisplay();
-      }
-    });
-
-    // Initialize Firebase star sync (both host and participant need this)
-    // This subscription handles the core multiplayer star synchronization
-    this._initializeFirebaseStarsSync();
-
-    // Game mode sync - switches between single-player and multiplayer
-    firebaseOnValue("fish-game/gameMode", (value) => {
-      this._setGameMode(value);
-    });
-
-    // Identity swap sync
-    firebaseOnValue("fish-game/isSwapped", (value) => {
-      const isSwapped = value === true;
-      if (this._isSwapped !== isSwapped) {
-        this._isSwapped = isSwapped;
-        console.log(`[FishGame] Synced identity swap. Effective isHost: ${this.isHost}, Real: ${this._realIsHost}`);
+        let isParticipant = data.user.includes("participant");
         
-        // Update WebGL cursor logic
-        if (this.currentCursor) {
-          this.currentCursor.setIsHost(this.isHost);
+        // Swap logic logic handled here previously? 
+        // Original: if (this._isSwapped) isParticipant = !isParticipant;
+        // Let's use IdentityManager's isSwapped check.
+        if (this._identityManager.isSwapped) {
+            isParticipant = !isParticipant;
         }
-
-        // Refresh UI based on new role if in multiplayer
-        if (this.isMultiplayerMode) {
-          if (this.isHost) {
-            this._createStarControlGrid();
-          } else {
-            this._destroyStarControlGrid();
-          }
-        }
-      }
+        
+        this.updatePointerPosition(data.x, data.y, null, isParticipant);
     });
   }
 
-  /**
-   * Sets up sidebar control icons.
-   * 
-   * @memberof FishGame
-   * @private
-   */
   _setupSidebarIcons() {
-    // Grid size INCREASE button (+)
-    // Increases grid from current size up to max of 4
-    setIcon(
-      1,    // Row 1
-      0,    // Column 0
-      {
-        symbol: "add",
-        displayValue: "Grid +",
-        type: "action",
-      },
-      () => {
-        const newSize = Math.min(4, this.gridSize + 1);
-        if (newSize !== this.gridSize) {
-          firebaseSet("fish-game/gridSize", newSize);
+    this._ui.setupGridControls({
+        onGridIncrease: () => {
+            const newSize = Math.min(4, this.gridSize + 1);
+            if (newSize !== this.gridSize) firebaseSet("fish-game/gridSize", newSize);
+        },
+        onGridDecrease: () => {
+            const newSize = Math.max(1, this.gridSize - 1);
+            if (newSize !== this.gridSize) firebaseSet("fish-game/gridSize", newSize);
         }
-      }
-    );
+    });
 
-    // Grid size DECREASE button (-)
-    // Decreases grid from current size down to min of 1
-    setIcon(
-      2,    // Row 2
-      0,    // Column 0
-      {
-        symbol: "minus",
-        displayValue: "Grid -",
-        type: "action",
-      },
-      () => {
-        const newSize = Math.max(1, this.gridSize - 1);
-        if (newSize !== this.gridSize) {
-          firebaseSet("fish-game/gridSize", newSize);
-        }
-      }
-    );
-
-    // Initial update of swap button visibility
-    this._updateSwapButtonVisibility();
+    // Initial Swap Button Check
+    this._updateSwapButton();
   }
-
-  /**
-   * Sets up session info listeners.
-   * 
-   * Monitors participant activity to automatically switch game modes.
-   * - Participant Active -> Multiplayer Mode
-   * - Participant Inactive -> Single-Player Mode
-   * 
-   * @memberof FishGame
-   * @private
-   */
+  
   _setupSessionListeners() {
     addSessionInfoListener((info) => {
-      // Only host controls the game mode based on participant presence
-      if (!this.isHost) return;
+        if (!this.isHost) return; 
+        
+        const participantActive = info.participantActive === true;
+        const targetMode = participantActive ? "multiplayer" : "single-player";
 
-      const participantActive = info.participantActive === true;
-      const targetMode = participantActive ? "multiplayer" : "single-player";
-
-      // Only write to Firebase if mode actually needs changing
-      // This prevents infinite loops if firebase update triggers something back
-      if (
-        (participantActive && !this.isMultiplayerMode) ||
-        (!participantActive && this.isMultiplayerMode)
-      ) {
-        console.log(`[FishGame] Participant active: ${participantActive}. Switching to ${targetMode}.`);
-        firebaseSet("fish-game/gameMode", targetMode);
-      }
+        if (
+            (participantActive && !this.isMultiplayerMode) ||
+            (!participantActive && this.isMultiplayerMode)
+        ) {
+            console.log(`[FishGame] Auto-switching to ${targetMode}`);
+            firebaseSet("fish-game/gameMode", targetMode);
+        }
     });
   }
 
   // ==========================================================================
-  // GAME MODE MANAGEMENT
+  // FIREBASE SUBSCRIPTIONS & SYNC
   // ==========================================================================
 
-  /**
-   * Sets the game mode and updates all dependent systems.
-   * 
-   * ## Mode Differences
-   * 
-   * | Feature          | Single-Player      | Multiplayer           |
-   * |------------------|--------------------|-----------------------|
-   * | Fish Control     | Host               | Participant only      |
-   * | Star Generation  | Automatic (random) | Manual (host grid UI) |
-   * | Star Grid UI     | Hidden             | Visible (host only)   |
-   * 
-   * ## What This Method Does
-   * 1. Uses GameService to determine mode change actions
-   * 2. Updates UI based on mode (grid visibility)
-   * 3. Clears or generates stars based on mode
-   * 4. Updates WebGLFishCursor mode
-   * 5. Updates mode toggle icon
-   * 
-   * @param {string} mode - "single-player" or "multiplayer"
-   * @memberof FishGame
-   * @private
-   */
-  _setGameMode(mode) {
-    // Use GameService to determine mode change actions (pure logic)
-    const modeResult = this._gameService.setGameMode(mode, this.isMultiplayerMode);
-
-    // Skip if no change
-    if (!modeResult.changed) return;
-
-    // Update local and service state
-    this.isMultiplayerMode = modeResult.isMultiplayer;
-    this._gameService.isMultiplayerMode = modeResult.isMultiplayer;
-    console.log("[FishGame] Game mode set to:", mode);
-
-    // Handle star clearing/generation based on service logic
-    if (modeResult.shouldClearStars) {
-      // MULTIPLAYER MODE: Clear all stars (host will place them manually)
-      firebaseSet("fish-game/stars", []);
-      this.firebaseStars = [];
-      this._gameService.setStars([]);
-      if (this.isHost) {
-        this._createStarControlGrid();
-      }
-    } else if (modeResult.shouldGenerateStars) {
-      // SINGLE-PLAYER MODE: Hide manual grid UI and auto-generate random stars
-      
-      // RESET IDENTITY SWAP when switching to single-player
-      if (this._isSwapped) {
-        firebaseSet("fish-game/isSwapped", false);
-        // Optimistically update local state so isHost returns true immediately
-        // This ensures _generateRandomStarsToFirebase() runs below
-        this._isSwapped = false;
-        if (this.currentCursor) {
-            this.currentCursor.setIsHost(this.isHost);
+  _setupFirebaseSubscriptions() {
+    // 1. Grid Size
+    firebaseOnValue("fish-game/gridSize", (value) => {
+        const validated = this._gameService.validateGridSize(value);
+        if (this.gridSize !== validated) {
+            this.gridSize = this._gameService.setGridSize(validated);
+            
+            if (this.currentCursor) this.currentCursor.setStarGrid(validated);
+            
+            this._updateStarGridUI();
+            
+            if (!this.isMultiplayerMode && this.isHost) {
+                this._generateRandomStarsToFirebase();
+            }
         }
-      }
+    });
 
-      this._destroyStarControlGrid();
-      if (this.isHost) {
-        this._generateRandomStarsToFirebase();
-      }
-    }
+    // 2. Score
+    firebaseOnValue("fish-game/score", (value) => {
+        const score = Number(value);
+        if (Number.isFinite(score) && score >= 0) {
+            this._gameService.setScore(score);
+            this.score = score;
+            this._ui.updateScore(score);
+        }
+    });
 
-    // Update cursor's internal mode (affects control logic)
-    if (this.currentCursor && this.currentCursor.setMultiplayerMode) {
-      this.currentCursor.setMultiplayerMode(modeResult.isMultiplayer);
-    }
+    // 3. Stars
+    this._initializeFirebaseStarsSync();
 
-    // Update the swap button visibility
-    this._updateSwapButtonVisibility();
+    // 4. Game Mode
+    firebaseOnValue("fish-game/gameMode", (value) => {
+        this._setGameMode(value);
+    });
 
-    // Update the sidebar icon to show what mode we'll switch TO
-    // this._updateModeIcon();
+    // 5. Swap State
+    firebaseOnValue("fish-game/isSwapped", (value) => {
+        const isSwapped = value === true;
+        const changed = this._identityManager.setSwapState(isSwapped);
+        
+        if (changed) {
+            if (this.currentCursor) {
+                this.currentCursor.setIsHost(this.isHost);
+            }
+            
+            // Re-evaluate UI that depends on role
+            this._updateStarGridUI();
+        }
+    });
   }
 
-  /**
-   * Updates the mode toggle icon in the Squidly sidebar.
-   * 
-   * The icon shows the mode it will switch TO (opposite of current):
-   * - In single-player: shows "group" icon / "Multiplayer" text
-   * - In multiplayer: shows "person" icon / "Single-Player" text
-   * 
-   * Clicking the icon triggers a Firebase write that all clients receive.
-   * 
-   * @memberof FishGame
-   * @private
-   */
-  _updateModeIcon() {
-    // Icon shows the TARGET mode (what clicking will switch to)
-    const symbol = this.isMultiplayerMode ? "person" : "group";
-    const displayValue = this.isMultiplayerMode ? "Single-Player" : "Multiplayer";
-
-    setIcon(
-      3,    // Row 3
-      0,    // Column 0
-      {
-        symbol: symbol,
-        displayValue: displayValue,
-        type: "action",
-      },
-      () => {
-        // Toggle mode via Firebase (syncs to all clients)
-        const newMode = this.isMultiplayerMode ? "single-player" : "multiplayer";
-        firebaseSet("fish-game/gameMode", newMode);
-      }
-    );
-  }
-
-  // ==========================================================================
-  // FIREBASE SYNC METHODS
-  // ==========================================================================
-
-  /**
-   * Initializes the Firebase listener for star data.
-   * 
-   * Called once at startup for both host and participant.
-   * The listener triggers _onFirebaseStarsUpdate whenever star data changes.
-   * 
-   * This is the foundation of multiplayer sync - any client changing stars
-   * writes to Firebase, and all clients receive the update through this listener.
-   * 
-   * @memberof FishGame
-   * @private
-   */
   _initializeFirebaseStarsSync() {
     if (this._firebaseStarsSyncInitialized) return;
-
     this._firebaseStarsSyncInitialized = true;
 
-    // Subscribe to star changes
     firebaseOnValue("fish-game/stars", (value) => {
-      this._onFirebaseStarsUpdate(value);
+        this._onFirebaseStarsUpdate(value);
     });
   }
 
-  /**
-   * Generates random star positions and writes them to Firebase.
-   * 
-   * Called by host in single-player mode when:
-   * - Game first starts
-   * - All stars are collected
-   * - Grid size changes
-   * 
-   * Uses GameService for pure star generation logic, then syncs to Firebase.
-   * 
-   * @memberof FishGame
-   * @private
-   */
-  _generateRandomStarsToFirebase() {
-    // Only host should generate stars
-    if (!this.isHost) return;
-
-    // Use GameService to generate stars (pure logic)
-    const stars = this._gameService.generateRandomStars(this.gridSize);
-
-    // Update service state
-    this._gameService.setStars(stars);
-    this.firebaseStars = stars;
-
-    // Write to Firebase - this triggers sync to all clients
-    firebaseSet("fish-game/stars", stars);
-  }
-
-  /**
-   * Increments the score by 1 and syncs to Firebase.
-   * Called when a star is collected.
-   * 
-   * Uses GameService for score calculation, then syncs to Firebase and updates UI.
-   * 
-   * @memberof FishGame
-   */
-  incrementScore() {
-    // Use GameService to increment score (pure logic)
-    const newScore = this._gameService.incrementScore();
-
-    // Update local state
-    this.score = newScore;
-
-    // Sync to Firebase and update UI (controller responsibilities)
-    firebaseSet("fish-game/score", newScore);
-    this._updateScoreDisplay();
-  }
-
-  /**
-   * Updates the score display element with current score.
-   * 
-   * @memberof FishGame
-   * @private
-   */
-  _updateScoreDisplay() {
-    if (this._scoreElement) {
-      this._scoreElement.textContent = this.score;
-    }
-  }
-
-  /**
-   * Firebase listener callback - called when star data changes.
-   * 
-   * This is the central sync point for star state:
-   * 1. Updates local cache (firebaseStars)
-   * 2. Updates grid UI cell states (host only, multiplayer)
-   * 3. Syncs to WebGLFishCursor for rendering
-   * 4. Triggers star regeneration if empty (single-player, host only)
-   * 
-   * @param {Array|null} stars - Star data from Firebase
-   * @memberof FishGame
-   * @private
-   */
   _onFirebaseStarsUpdate(stars) {
-    // Update local cache and service state
     this.firebaseStars = Array.isArray(stars) ? stars : [];
     this._gameService.setStars(this.firebaseStars);
 
-    // Update grid UI to show which cells have stars (host multiplayer only)
-    this._updateStarCellStates();
+    // Update UI
+    this._ui.updateStarCellStates(this.firebaseStars);
 
-    // Sync to WebGL renderer
+    // Update Renderer
     if (this.currentCursor) {
-      this.currentCursor.syncStarsFromFirebase(this.firebaseStars);
+        this.currentCursor.syncStarsFromFirebase(this.firebaseStars);
     }
 
-    // AUTO-REGENERATION (single-player mode only)
-    // Use GameService to determine if regeneration should happen
-    if (this.isHost && this._firebaseStarsSyncInitialized &&
-      this._gameService.shouldRegenerateStars(this.firebaseStars, this.isMultiplayerMode)) {
-      // Small delay to avoid race conditions on initial load
-      setTimeout(() => {
-        if (this._gameService.shouldRegenerateStars(this.firebaseStars, this.isMultiplayerMode)) {
-          this._generateRandomStarsToFirebase();
-        }
-      }, 500);
+    // Auto-Regen Logic
+    if (this.isHost && 
+        this._firebaseStarsSyncInitialized && 
+        this._gameService.shouldRegenerateStars(this.firebaseStars, this.isMultiplayerMode)) {
+            
+        setTimeout(() => {
+            if (this._gameService.shouldRegenerateStars(this.firebaseStars, this.isMultiplayerMode)) {
+                this._generateRandomStarsToFirebase();
+            }
+        }, 500);
     }
-  }
-
-  /**
-   * Callback from WebGLFishCursor when fish collides with a star.
-   * 
-   * This method:
-   * 1. Uses GameService to collect star and increment score
-   * 2. Syncs updated state to Firebase
-   * 
-   * Note: Only the client controlling the fish calls this (collision authority).
-   * This prevents double-counting when both clients see the same collision.
-   * 
-   * @param {string} starId - Unique identifier of the collected star
-   * @memberof FishGame
-   */
-  onStarCollected(starId) {
-    if (!starId) return;
-
-    // Use GameService to collect star (pure logic: removes star, increments score)
-    const result = this._gameService.collectStar(starId);
-
-    // Update local state
-    this.score = result.newScore;
-    this.firebaseStars = result.remainingStars;
-
-    // Sync to Firebase (triggers sync to all clients)
-    firebaseSet("fish-game/score", result.newScore);
-    firebaseSet("fish-game/stars", result.remainingStars);
-    this._updateScoreDisplay();
-    console.log(`[FishGame] Star collected and removed from Firebase: ${starId}`);
   }
 
   // ==========================================================================
-  // UI CREATION METHODS
+  // LOGIC & ACTIONS
   // ==========================================================================
 
-  /**
-   * Creates the score display overlay in the top-right corner.
-   * 
-   * The display shows:
-   * - Star emoji icon
-   * - Current score number
-   * 
-   * Styling is defined in style.css via #score-container.
-   * 
-   * @memberof FishGame
-   * @private
-   */
-  _createScoreDisplay() {
-    // Only create once
-    if (this._scoreElement) return;
+  _setGameMode(mode) {
+    const result = this._gameService.setGameMode(mode, this.isMultiplayerMode);
+    if (!result.changed) return;
 
-    // Container (styled via #score-container in style.css)
-    const container = document.createElement("div");
-    container.id = "score-container";
+    this.isMultiplayerMode = result.isMultiplayer;
+    this._gameService.isMultiplayerMode = result.isMultiplayer;
+    console.log("[FishGame] Mode set to:", mode);
 
-    // Star emoji
-    const starIcon = document.createElement("span");
-    starIcon.className = "score-icon";
-    starIcon.textContent = "\u2B50";  // ⭐
-
-    // Score number
-    this._scoreElement = document.createElement("span");
-    this._scoreElement.className = "score-value";
-    this._scoreElement.textContent = this.score;
-
-    container.appendChild(starIcon);
-    container.appendChild(this._scoreElement);
-    document.body.appendChild(container);
-  }
-
-  /**
-   * Updates the visibility of the swap button based on game mode.
-   * Only shows in multiplayer mode.
-   * 
-   * @memberof FishGame
-   * @private
-   */
-  _updateSwapButtonVisibility() {
-    // Remove existing button if present to prevent icon accumulation
-    if (this._swapButtonKey) {
-      removeIcon(this._swapButtonKey);
-      this._swapButtonKey = null;
-    }
-
-    if (this.isMultiplayerMode) {
-      this._swapButtonKey = setIcon(
-        3,    // Row 3
-        0,    // Column 0
-        {
-          symbol: "switch",
-          displayValue: "Switch Mode",
-          type: "action",
-        },
-        () => {
-          this.toggleIdentitySwap();
+    if (result.shouldClearStars) {
+        // Multiplayer: Clear stars
+        this._setFirebaseStars([]);
+        this._updateStarGridUI();
+    } else if (result.shouldGenerateStars) {
+        // Single Player: Reset swap, hide grid, generate stars
+        if (this._identityManager.isSwapped) {
+            firebaseSet("fish-game/isSwapped", false);
+            // Optimistic update for immediate logic
+            this._identityManager.setSwapState(false); 
+            if (this.currentCursor) this.currentCursor.setIsHost(this.isHost);
         }
-      );
-    }
-  }
 
-  /**
-   * Creates the star control grid UI for host in multiplayer mode.
-   * 
-   * The grid allows the host to manually place/remove stars by clicking cells.
-   * Each cell displays a star emoji that's highlighted when a star exists there.
-   * 
-   * ## Grid Layout
-   * ```
-   * ┌─────┬─────┬─────┬─────┐
-   * │(0,0)│(0,1)│(0,2)│(0,3)│
-   * ├─────┼─────┼─────┼─────┤
-   * │(1,0)│(1,1)│(1,2)│(1,3)│
-   * ├─────┼─────┼─────┼─────┤
-   * │(2,0)│(2,1)│(2,2)│(2,3)│
-   * ├─────┼─────┼─────┼─────┤
-   * │(3,0)│(3,1)│(3,2)│(3,3)│
-   * └─────┴─────┴─────┴─────┘
-   * ```
-   * 
-   * The grid size is determined by this.gridSize (1-4).
-   * Grid styling is defined in style.css via .star-control-grid and .star-control-cell classes.
-   * 
-   * @memberof FishGame
-   * @private
-   */
-  _createStarControlGrid() {
-    // Only create for host in multiplayer mode
-    if (!this.isMultiplayerMode || !this.isHost) return;
-
-    // Remove existing grid if any
-    this._destroyStarControlGrid();
-
-    // Create grid container
-    const grid = document.createElement("div");
-    grid.className = "star-control-grid";
-    grid.id = "star-control-grid";
-    // Set CSS grid dimensions
-    grid.style.gridTemplateColumns = `repeat(${this.gridSize}, 1fr)`;
-    grid.style.gridTemplateRows = `repeat(${this.gridSize}, 1fr)`;
-
-    this._starCells = [];
-
-    // Create cells for each grid position
-    let cellIndex = 0;
-    for (let row = 0; row < this.gridSize; row++) {
-      for (let col = 0; col < this.gridSize; col++) {
-        const cell = document.createElement("access-button");
-        cell.className = "star-control-cell";
-        cell.dataset.row = row;
-        cell.dataset.col = col;
-        
-        // Set attributes for auto-registration
-        cell.setAttribute("access-group", "star-grid");
-        cell.setAttribute("access-order", cellIndex);
-
-        // Star emoji inside cell
-        const starIcon = document.createElement("span");
-        starIcon.className = "star-icon";
-        starIcon.textContent = "\u2B50";  // ⭐
-        cell.appendChild(starIcon);
-
-        // Access-click handler for accessibility (dwell/switch)
-        cell.addEventListener("access-click", (e) => {
-          this._onStarCellClick(row, col, cell);
-        });
-
-        grid.appendChild(cell);
-        this._starCells.push({ row, col, element: cell });
-        cellIndex++;
-      }
+        this._updateStarGridUI();
+        if (this.isHost) {
+            this._generateRandomStarsToFirebase();
+        }
     }
 
-    document.body.appendChild(grid);
-    this._starGridElement = grid;
-
-    // Apply initial cell states based on current Firebase stars
-    this._updateStarCellStates();
-  }
-
-  /**
-   * Removes the star control grid from the DOM.
-   * Called when switching to single-player mode or cleaning up.
-   * 
-   * @memberof FishGame
-   * @private
-   */
-  _destroyStarControlGrid() {
-    // Access buttons are auto-unregistered when removed from DOM
-    if (this._starGridElement) {
-      this._starGridElement.remove();
-      this._starGridElement = null;
+    if (this.currentCursor && this.currentCursor.setMultiplayerMode) {
+        this.currentCursor.setMultiplayerMode(result.isMultiplayer);
     }
-    this._starCells = [];
+
+    this._updateSwapButton();
   }
 
-  /**
-   * Updates the visual state of grid cells to show which have stars.
-   * 
-   * Cells with stars get the "has-star" CSS class, which typically:
-   * - Highlights the star emoji
-   * - Changes background color
-   * - Adds visual emphasis
-   * 
-   * Called whenever Firebase star data changes.
-   * 
-   * @memberof FishGame
-   * @private
-   */
-  _updateStarCellStates() {
-    if (!this._starCells.length) return;
-
-    this._starCells.forEach(({ row, col, element }) => {
-      // Check if Firebase has a star at this position
-      const hasStar = this.firebaseStars.some(
-        (s) => s.row === row && s.col === col
-      );
-
-      // Toggle CSS class
-      if (hasStar) {
-        element.classList.add("has-star");
-      } else {
-        element.classList.remove("has-star");
-      }
+  _updateSwapButton() {
+    this._ui.updateSwapButton(this.isMultiplayerMode, () => {
+        this.toggleIdentitySwap();
     });
   }
 
-  /**
-   * Handles click on a star grid cell - toggles star at that position.
-   * 
-   * - If star exists at (row, col): removes it from Firebase
-   * - If no star exists: creates new star with unique ID and adds to Firebase
-   * 
-   * Uses GameService for toggle logic, then syncs to Firebase.
-   * All changes go through Firebase, which triggers sync to all clients
-   * (including this one, updating the WebGL renderer).
-   * 
-   * @param {number} row - Grid row (0-indexed from top)
-   * @param {number} col - Grid column (0-indexed from left)
-   * @param {HTMLElement} cellElement - The clicked cell element (unused but available)
-   * @memberof FishGame
-   * @private
-   */
-  _onStarCellClick(row, col, cellElement) {
-    // Ensure service has current stars state
-    this._gameService.setStars(this.firebaseStars);
-
-    // Use GameService to toggle star (pure logic)
-    const newStars = this._gameService.toggleStarAtPosition(row, col);
-
-    // Update local state
-    this.firebaseStars = newStars;
-
-    // Sync to Firebase (triggers sync to all clients)
-    firebaseSet("fish-game/stars", newStars);
+  toggleIdentitySwap() {
+    if (!this.isMultiplayerMode) {
+        console.warn("[FishGame] Cannot swap in single-player.");
+        return;
+    }
+    firebaseSet("fish-game/isSwapped", !this._identityManager.isSwapped);
   }
 
-  // ==========================================================================
-  // INPUT HANDLING
-  // ==========================================================================
+  _updateStarGridUI() {
+    // Only show grid if Multiplayer AND Host
+    const shouldShow = this.isMultiplayerMode && this.isHost;
+    
+    this._ui.updateStarControlGrid(
+        shouldShow, 
+        this.gridSize, 
+        this.firebaseStars, 
+        (row, col) => this._onStarCellClick(row, col)
+    );
+  }
 
-  /**
-   * Updates pointer position in the WebGL cursor.
-   * 
-   * Routes pointer data to the InputManager with the appropriate ID.
-   * The cursor uses this to determine which pointer controls the fish.
-   * 
-   * @param {number} x - Pointer X coordinate (screen pixels)
-   * @param {number} y - Pointer Y coordinate (screen pixels)
-   * @param {string|null} color - Optional color for pointer visualization
-   * @param {boolean} isParticipant - true if from participant, false if from host
-   * @memberof FishGame
-   */
+  _onStarCellClick(row, col) {
+    // Ensure service is up to date
+    this._gameService.setStars(this.firebaseStars);
+    const newStars = this._gameService.toggleStarAtPosition(row, col);
+    
+    // Optimistic update
+    this.firebaseStars = newStars; 
+    
+    // Sync
+    this._setFirebaseStars(newStars);
+  }
+
+  _generateRandomStarsToFirebase() {
+    if (!this.isHost) return;
+    const stars = this._gameService.generateRandomStars(this.gridSize);
+    this._gameService.setStars(stars);
+    this.firebaseStars = stars;
+    this._setFirebaseStars(stars);
+  }
+
+  _setFirebaseStars(stars) {
+    firebaseSet("fish-game/stars", stars);
+  }
+
+  incrementScore() {
+    const newScore = this._gameService.incrementScore();
+    this.score = newScore;
+    firebaseSet("fish-game/score", newScore);
+    this._ui.updateScore(newScore);
+  }
+
+  onStarCollected(starId) {
+    if (!starId) return;
+    const result = this._gameService.collectStar(starId);
+    
+    this.score = result.newScore;
+    this.firebaseStars = result.remainingStars;
+    
+    firebaseSet("fish-game/score", result.newScore);
+    firebaseSet("fish-game/stars", result.remainingStars);
+    
+    this._ui.updateScore(result.newScore);
+    console.log(`[FishGame] Star collected: ${starId}`);
+  }
+
   updatePointerPosition(x, y, color = null, isParticipant = false) {
     if (!this.currentCursor || !this.currentCursor.inputManager) return;
-
-    // Tag pointer with appropriate ID for control logic
     const pointerId = isParticipant ? "participant" : "host";
     this.currentCursor.inputManager.updatePointerPosition(x, y, color, pointerId);
   }
 }
 
-// ============================================================================
-// APPLICATION BOOTSTRAP
-// ============================================================================
-
-// Create game instance immediately (for platform access)
+// Bootstrap
 window.fishGame = new FishGame();
-
-// Start the game after DOM is ready
 document.addEventListener("DOMContentLoaded", () => {
   window.fishGame.init();
 });
