@@ -41,14 +41,14 @@ export class GameUI {
    */
   setupGridControls({ onGridIncrease, onGridDecrease }) {
     // Grid +
-    setIcon(1, 0, {
+    SquidlyAPI.setIcon(1, 0, {
       symbol: "add",
       displayValue: "Grid +",
       type: "action",
     }, onGridIncrease);
 
     // Grid -
-    setIcon(2, 0, {
+    SquidlyAPI.setIcon(2, 0, {
       symbol: "minus",
       displayValue: "Grid -",
       type: "action",
@@ -63,12 +63,12 @@ export class GameUI {
   updateSwapButton(isMultiplayerMode, onSwapClick) {
     // Remove existing
     if (this._swapButtonKey) {
-      removeIcon(this._swapButtonKey);
+      SquidlyAPI.removeIcon(this._swapButtonKey);
       this._swapButtonKey = null;
     }
 
     if (isMultiplayerMode) {
-      this._swapButtonKey = setIcon(3, 0, {
+      this._swapButtonKey = SquidlyAPI.setIcon(3, 0, {
         symbol: "switch",
         displayValue: "Switch Mode",
         type: "action",
