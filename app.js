@@ -353,8 +353,8 @@ class FishGame {
     this.score = result.newScore;
     this.firebaseStars = result.remainingStars;
     
-    firebaseSet("fish-game/score", result.newScore);
-    firebaseSet("fish-game/stars", result.remainingStars);
+    SquidlyAPI.firebaseSet("fish-game/score", result.newScore);
+    SquidlyAPI.firebaseSet("fish-game/stars", result.remainingStars);
     
     this._ui.updateScore(result.newScore);
     console.log(`[FishGame] Star collected: ${starId}`);
