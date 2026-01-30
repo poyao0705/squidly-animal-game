@@ -65,7 +65,6 @@ class FishGame {
     this._setupEventListeners();
     this._setupFirebaseSubscriptions();
     this._setupSidebarIcons();
-    this._setupSessionListeners();
     
     // Initialize UI components
     this._ui.init(this.score);
@@ -127,6 +126,21 @@ class FishGame {
         
         this.updatePointerPosition(data.x, data.y, null, isParticipant);
     });
+
+    addSessionInfoListener((info) => {
+        if (!this.isHost) return; 
+        
+        const participantActive = info.participantActive === true;
+        const targetMode = participantActive ? "multiplayer" : "single-player";
+
+        if (
+            (participantActive && !this.isMultiplayerMode) ||
+            (!participantActive && this.isMultiplayerMode)
+        ) {
+            console.log(`[FishGame] Auto-switching to ${targetMode}`);
+            firebaseSet("fish-game/gameMode", targetMode);
+        }
+    });
   }
 
   _setupSidebarIcons() {
@@ -145,22 +159,6 @@ class FishGame {
     this._updateSwapButton();
   }
   
-  _setupSessionListeners() {
-    addSessionInfoListener((info) => {
-        if (!this.isHost) return; 
-        
-        const participantActive = info.participantActive === true;
-        const targetMode = participantActive ? "multiplayer" : "single-player";
-
-        if (
-            (participantActive && !this.isMultiplayerMode) ||
-            (!participantActive && this.isMultiplayerMode)
-        ) {
-            console.log(`[FishGame] Auto-switching to ${targetMode}`);
-            firebaseSet("fish-game/gameMode", targetMode);
-        }
-    });
-  }
 
   // ==========================================================================
   // FIREBASE SUBSCRIPTIONS & SYNC
@@ -293,11 +291,11 @@ class FishGame {
 
   _updateSwapButton() {
     this._ui.updateSwapButton(this.isMultiplayerMode, () => {
-        this.toggleIdentitySwap();
+        this._toggleIdentitySwap();
     });
   }
 
-  toggleIdentitySwap() {
+  _toggleIdentitySwap() {
     if (!this.isMultiplayerMode) {
         console.warn("[FishGame] Cannot swap in single-player.");
         return;
