@@ -236,6 +236,9 @@ class FishGame {
 
     // Set up sidebar icons
     this._setupSidebarIcons();
+
+    // Set up session listeners (auto-switch mode)
+    this._setupSessionListeners();
   }
 
   /**
@@ -435,20 +438,50 @@ class FishGame {
     // Game mode TOGGLE button
     // Shows what clicking will switch TO (not current mode)
     // Initial state: shows "Multiplayer" (click to switch to multiplayer)
-    setIcon(
-      3,    // Row 3
-      0,    // Column 0
-      {
-        symbol: "group",           // Group icon (will switch to multiplayer)
-        displayValue: "Multiplayer",
-        type: "action",
-      },
-      () => {
-        // Toggle between modes
-        const newMode = this.isMultiplayerMode ? "single-player" : "multiplayer";
-        firebaseSet("fish-game/gameMode", newMode);
+    // setIcon(
+    //   3,    // Row 3
+    //   0,    // Column 0
+    //   {
+    //     symbol: "group",           // Group icon (will switch to multiplayer)
+    //     displayValue: "Multiplayer",
+    //     type: "action",
+    //   },
+    //   () => {
+    //     // Toggle between modes
+    //     const newMode = this.isMultiplayerMode ? "single-player" : "multiplayer";
+    //     firebaseSet("fish-game/gameMode", newMode);
+    //   }
+    // );
+  }
+
+  /**
+   * Sets up session info listeners.
+   * 
+   * Monitors participant activity to automatically switch game modes.
+   * - Participant Active -> Multiplayer Mode
+   * - Participant Inactive -> Single-Player Mode
+   * 
+   * @memberof FishGame
+   * @private
+   */
+  _setupSessionListeners() {
+    addSessionInfoListener((info) => {
+      // Only host controls the game mode based on participant presence
+      if (!this.isHost) return;
+
+      const participantActive = info.participantActive === true;
+      const targetMode = participantActive ? "multiplayer" : "single-player";
+
+      // Only write to Firebase if mode actually needs changing
+      // This prevents infinite loops if firebase update triggers something back
+      if (
+        (participantActive && !this.isMultiplayerMode) ||
+        (!participantActive && this.isMultiplayerMode)
+      ) {
+        console.log(`[FishGame] Participant active: ${participantActive}. Switching to ${targetMode}.`);
+        firebaseSet("fish-game/gameMode", targetMode);
       }
-    );
+    });
   }
 
   // ==========================================================================
@@ -512,7 +545,7 @@ class FishGame {
     }
 
     // Update the sidebar icon to show what mode we'll switch TO
-    this._updateModeIcon();
+    // this._updateModeIcon();
   }
 
   /**
@@ -803,11 +836,6 @@ class FishGame {
         starIcon.className = "star-icon";
         starIcon.textContent = "\u2B50";  // ⭐
         cell.appendChild(starIcon);
-
-        // Click handler for toggling star
-        cell.addEventListener("click", () => {
-          this._onStarCellClick(row, col, cell);
-        });
 
         // Access-click handler for accessibility (dwell/switch)
         cell.addEventListener("access-click", (e) => {
