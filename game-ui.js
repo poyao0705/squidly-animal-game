@@ -42,14 +42,14 @@ export class GameUI {
     // Grid +
     SquidlyAPI.setIcon(1, 0, {
       symbol: "add",
-      displayValue: "Grid +",
+      displayValue: "Increase Grid",
       type: "action",
     }, onGridIncrease);
 
     // Grid -
     SquidlyAPI.setIcon(2, 0, {
       symbol: "minus",
-      displayValue: "Grid -",
+      displayValue: "Decrease Grid",
       type: "action",
     }, onGridDecrease);
   }

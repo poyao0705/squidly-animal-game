@@ -82,7 +82,7 @@ export const DEFAULT_CONFIG = {
     STAR_GRID_SIZE: 4,             // NxN grid for star positions (1-4)
     STAR_UI_LEFT_RATIO: 0.2,       // Left margin as ratio of viewport (20% = 1/5)
     STAR_SIZE_MIN: 0.12,           // Minimum star scale
-    STAR_SIZE_MAX: 0.3,            // Maximum star scale
+    STAR_SIZE_MAX: 0.5,            // Maximum star scale
     STAR_FLOAT_RADIUS: 0.35,       // Radius of floating animation
     STAR_FLOAT_SPEED_MIN: 0.6,     // Min float animation speed
     STAR_FLOAT_SPEED_MAX: 1.4,     // Max float animation speed
