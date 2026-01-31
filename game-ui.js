@@ -7,7 +7,6 @@
  * - Star control grid
  */
 
-import "https://v3.squidly.com.au/src/Utilities/Buttons/access-buttons.js";
 
 export class GameUI {
   constructor() {
