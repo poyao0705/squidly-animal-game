@@ -29,12 +29,12 @@ body {
 
 #instruction-text {
     position: fixed;
-    top: 50%;
+    top: 90%;
     left: 50%;
     transform: translate(-50%, -50%);
     color: #ffffff;
     font-family: Arial, sans-serif;
-    font-size: 48px;
+    font-size: 36px;
     font-weight: bold;
     text-align: center;
     z-index: 1;
