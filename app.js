@@ -109,11 +109,6 @@ class FishGame {
 
   _setupEventListeners() {
     // Local mouse
-    document.addEventListener("mousemove", (e) => {
-      // In single player: host controls.
-      // In multiplayer: participant controls.
-      this.updatePointerPosition(e.clientX, e.clientY, null, !this.isHost);
-    });
 
     // Squidly API
     SquidlyAPI.addCursorListener((data) => {
