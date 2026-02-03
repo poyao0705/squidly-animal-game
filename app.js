@@ -349,9 +349,12 @@ class FishGame {
 
   _setFirebaseStars(stars) {
     // Serialize stars array as comma-separated string: "row_col,row_col,..."
-    // Use empty string for no stars (consistent with parsing)
+    // Sort by row then col for consistent ordering
     const serialized = stars.length > 0 
-      ? stars.map(s => `${s.row}_${s.col}`).join(",") 
+      ? stars
+          .slice() // Don't mutate original
+          .sort((a, b) => a.row - b.row || a.col - b.col)
+          .map(s => `${s.row}_${s.col}`).join(",") 
       : "";
     SquidlyAPI.firebaseSet("fish-game/stars", serialized);
   }
