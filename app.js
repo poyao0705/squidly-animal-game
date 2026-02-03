@@ -223,14 +223,18 @@ class FishGame {
 
   _onFirebaseStarsUpdate(starsData) {
     // Parse comma-separated string "row_col,row_col,..." back into array
-    // Handle both empty string and null/undefined cases
-    if (!starsData || starsData === "") {
+    // Handle null, undefined, and empty string cases
+    if (starsData == null || starsData === "") {
       this.firebaseStars = [];
     } else if (typeof starsData === "string") {
-      this.firebaseStars = starsData.split(",").map(s => {
-        const [row, col] = s.split("_").map(Number);
-        return { row, col };
-      }).filter(s => !isNaN(s.row) && !isNaN(s.col));
+      // Split and filter out empty entries (handles edge case of trailing commas)
+      this.firebaseStars = starsData.split(",")
+        .filter(s => s.length > 0)
+        .map(s => {
+          const [row, col] = s.split("_").map(Number);
+          return { row, col };
+        })
+        .filter(s => !isNaN(s.row) && !isNaN(s.col));
     } else {
       // Legacy: handle array format during migration
       this.firebaseStars = Array.isArray(starsData) ? starsData : [];
@@ -345,8 +349,10 @@ class FishGame {
 
   _setFirebaseStars(stars) {
     // Serialize stars array as comma-separated string: "row_col,row_col,..."
-    // This complies with the primitive-only Firebase restriction
-    const serialized = stars.map(s => `${s.row}_${s.col}`).join(",");
+    // Use empty string for no stars (consistent with parsing)
+    const serialized = stars.length > 0 
+      ? stars.map(s => `${s.row}_${s.col}`).join(",") 
+      : "";
     SquidlyAPI.firebaseSet("fish-game/stars", serialized);
   }
 
