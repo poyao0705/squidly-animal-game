@@ -221,8 +221,21 @@ class FishGame {
     });
   }
 
-  _onFirebaseStarsUpdate(stars) {
-    this.firebaseStars = Array.isArray(stars) ? stars : [];
+  _onFirebaseStarsUpdate(starsData) {
+    // Parse comma-separated string "row_col,row_col,..." back into array
+    // Handle both empty string and null/undefined cases
+    if (!starsData || starsData === "") {
+      this.firebaseStars = [];
+    } else if (typeof starsData === "string") {
+      this.firebaseStars = starsData.split(",").map(s => {
+        const [row, col] = s.split("_").map(Number);
+        return { row, col };
+      }).filter(s => !isNaN(s.row) && !isNaN(s.col));
+    } else {
+      // Legacy: handle array format during migration
+      this.firebaseStars = Array.isArray(starsData) ? starsData : [];
+    }
+    
     this._gameService.setStars(this.firebaseStars);
 
     // Update UI
@@ -331,7 +344,10 @@ class FishGame {
   }
 
   _setFirebaseStars(stars) {
-    SquidlyAPI.firebaseSet("fish-game/stars", stars);
+    // Serialize stars array as comma-separated string: "row_col,row_col,..."
+    // This complies with the primitive-only Firebase restriction
+    const serialized = stars.map(s => `${s.row}_${s.col}`).join(",");
+    SquidlyAPI.firebaseSet("fish-game/stars", serialized);
   }
 
   incrementScore() {
@@ -349,7 +365,7 @@ class FishGame {
     this.firebaseStars = result.remainingStars;
     
     SquidlyAPI.firebaseSet("fish-game/score", result.newScore);
-    SquidlyAPI.firebaseSet("fish-game/stars", result.remainingStars);
+    this._setFirebaseStars(result.remainingStars);
     
     this._ui.updateScore(result.newScore);
     console.log(`[FishGame] Star collected: ${starId}`);
