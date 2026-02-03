@@ -89,14 +89,15 @@ class GameService {
   }
 
   /**
-   * Creates a unique star ID
+   * Creates a star ID from grid position
+   * Uses deterministic format to match IDs parsed from Firebase string format
    * 
    * @param {number} row - Grid row
    * @param {number} col - Grid column
-   * @returns {string} Unique star ID
+   * @returns {string} Star ID in format "star_row_col"
    */
   createStarId(row, col) {
-    return `star_${row}_${col}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `star_${row}_${col}`;
   }
 
   /**

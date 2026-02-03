@@ -232,7 +232,8 @@ class FishGame {
         .filter(s => s.length > 0)
         .map(s => {
           const [row, col] = s.split("_").map(Number);
-          return { row, col };
+          // Generate deterministic ID from position (needed for collectStar filtering)
+          return { id: `star_${row}_${col}`, row, col };
         })
         .filter(s => !isNaN(s.row) && !isNaN(s.col));
     } else {
