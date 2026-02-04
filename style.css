@@ -1,150 +1,155 @@
 body {
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
-    background: hsl(265, 100%, 10%);
-    /* Colors */
-    --icon-color: #cac9c4;
-    --icon-color-hover: white;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: hsl(265, 100%, 10%);
+  /* Colors */
+  --icon-color: #cac9c4;
+  --icon-color-hover: white;
 
-    --color-red1: #ff4a53;
-    --color-blue1: #5ad3ff;
+  --color-red1: #ff4a53;
+  --color-blue1: #5ad3ff;
 
-    --icon-color-red: #db4a4a;
-    --icon-color-red-hover: #ff4646;
+  --icon-color-red: #db4a4a;
+  --icon-color-red-hover: #ff4646;
 
-    --action-red: #a61f00;
-    --action-red-dark: #811a03;
+  --action-red: #a61f00;
+  --action-red-dark: #811a03;
 
+  --color-danger: #8f53c9;
+  --color-danger-light: #c091ee;
+  --color-danger-lighter: #d7b9f4;
 
-    --color-danger: #8f53c9;
-    --color-danger-light: #c091ee;
-    --color-danger-lighter: #d7b9f4;
-
-    --panel-light-color: #252222ab;
-    --panel-dark-color: #252222;
-    --panel-darker-color: #1b1818;
-    --panel-color: #3a3737;
+  --panel-light-color: #252222ab;
+  --panel-dark-color: #252222;
+  --panel-darker-color: #1b1818;
+  --panel-color: #3a3737;
 }
 
 #instruction-text {
-    position: fixed;
-    top: 90%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    color: #ffffff;
-    font-family: Arial, sans-serif;
-    font-size: 36px;
-    font-weight: bold;
-    text-align: center;
-    z-index: 1;
-    pointer-events: none;
-    opacity: 0.7;
+  position: fixed;
+  top: 90%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #ffffff;
+  font-family: Arial, sans-serif;
+  font-size: 36px;
+  font-weight: bold;
+  text-align: center;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.7;
 }
 
 /* Star Control Grid - Liquid Glass Buttons */
 .star-control-grid {
-    position: fixed;
-    top: 0;
-    left: 20%;
-    right: 0;
-    bottom: 0;
-    display: grid;
-    gap: 8px;
-    padding: 20px;
-    pointer-events: auto;
-    z-index: 9997;
-    box-sizing: border-box;
+  position: fixed;
+  top: 0;
+  left: 20%;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  gap: 8px;
+  padding: 20px;
+  pointer-events: auto;
+  z-index: 9997;
+  box-sizing: border-box;
 }
 
 .star-control-cell {
-    background: rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 16px;
-    cursor: pointer;
-    transition: all 0.25s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
 }
 
 .star-control-cell::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(135deg,
-            rgba(255, 255, 255, 0.1) 0%,
-            rgba(255, 255, 255, 0.05) 50%,
-            rgba(255, 255, 255, 0) 100%);
-    pointer-events: none;
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  pointer-events: none;
 }
 
 .star-control-cell:hover {
-    background: rgba(255, 234, 0, 0.2);
-    border-color: rgba(255, 234, 0, 0.4);
-    box-shadow:
-        0 0 30px rgba(255, 234, 0, 0.3),
-        inset 0 0 20px rgba(255, 234, 0, 0.1);
-    transform: scale(1.02);
+  background: rgba(255, 234, 0, 0.2);
+  border-color: rgba(255, 234, 0, 0.4);
+  box-shadow:
+    0 0 30px rgba(255, 234, 0, 0.3),
+    inset 0 0 20px rgba(255, 234, 0, 0.1);
+  transform: scale(1.02);
 }
 
 .star-control-cell:active {
-    background: rgba(255, 234, 0, 0.35);
-    transform: scale(0.98);
+  background: rgba(255, 234, 0, 0.35);
+  transform: scale(0.98);
 }
 
 .star-control-cell .star-icon {
-    font-size: 32px;
-    opacity: 0.3;
-    transition: all 0.25s ease;
-    filter: drop-shadow(0 0 8px rgba(255, 234, 0, 0.5));
+  font-size: 32px;
+  opacity: 0.3;
+  transition: all 0.25s ease;
+  filter: drop-shadow(0 0 8px rgba(255, 234, 0, 0.5));
 }
 
 .star-control-cell:hover .star-icon {
-    opacity: 0.8;
-    transform: scale(1.2);
+  opacity: 0.8;
+  transform: scale(1.2);
 }
 
 .star-control-cell.has-star {
-    background: rgba(255, 234, 0, 0.15);
-    border-color: rgba(255, 234, 0, 0.3);
+  background: rgba(255, 234, 0, 0.15);
+  border-color: rgba(255, 234, 0, 0.3);
 }
 
 .star-control-cell.has-star .star-icon {
-    opacity: 1;
+  opacity: 1;
 }
 
 /* Score Display */
 #score-container {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 20px;
-    background: linear-gradient(135deg, rgba(255, 234, 0, 0.9), rgba(255, 180, 0, 0.9));
-    border-radius: 16px;
-    box-shadow: 0 4px 20px rgba(255, 200, 0, 0.4);
-    z-index: 9999;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    pointer-events: none;
+  position: fixed;
+  top: clamp(10px, 2vh, 20px);
+  right: clamp(10px, 2vw, 20px);
+  display: flex;
+  align-items: center;
+  gap: clamp(6px, 1vw, 10px);
+  padding: clamp(8px, 1.5vw, 12px) clamp(12px, 2vw, 20px);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 234, 0, 0.9),
+    rgba(255, 180, 0, 0.9)
+  );
+  border-radius: clamp(10px, 1.5vw, 16px);
+  box-shadow: 0 4px 20px rgba(255, 200, 0, 0.4);
+  z-index: 9999;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  pointer-events: none;
 }
 
 #score-container .score-icon {
-    font-size: 28px;
+  font-size: clamp(18px, 3vw, 28px);
 }
 
 #score-container .score-value {
-    font-size: 32px;
-    font-weight: bold;
-    color: #333;
-    text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8);
+  font-size: clamp(20px, 3.5vw, 32px);
+  font-weight: bold;
+  color: #333;
+  text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8);
 }
