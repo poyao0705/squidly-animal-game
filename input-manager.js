@@ -30,34 +30,31 @@ class InputManager {
    * 
    * @param {number} x - X coordinate of the pointer
    * @param {number} y - Y coordinate of the pointer
-   * @param {Array|string|null} [color=null] - Color for the pointer effect
    * @param {string} [id="default"] - Unique identifier for the pointer/user
    */
-  updatePointerPosition(x, y, color = null, id = "default") {
+  updatePointerPosition(x, y, id = "default") {
     if (x === undefined || y === undefined || x === null || y === null) {
       console.warn("InputManager: Invalid coordinates received:", x, y, "for user:", id);
       return;
     }
 
-    const pointer = this._getOrCreatePointer(id, color);
+    const pointer = this._getOrCreatePointer(id);
     pointer.x = x;
     pointer.y = y;
     pointer.lastSeen = performance.now();
-    pointer.color = color || pointer.color;
   }
 
   /**
    * Get or create a pointer object for the specified ID
    * @private
    */
-  _getOrCreatePointer(id, color = null) {
+  _getOrCreatePointer(id) {
     if (!this._pointers.has(id)) {
       this._pointers.set(id, {
         id: id,
         x: 0,
         y: 0,
-        lastSeen: 0,
-        color: color
+        lastSeen: 0
       });
     }
     return this._pointers.get(id);
@@ -72,8 +69,7 @@ class InputManager {
       id: pointer.id,
       x: pointer.x,
       y: pointer.y,
-      lastSeen: pointer.lastSeen,
-      color: pointer.color
+      lastSeen: pointer.lastSeen
     }));
   }
 
