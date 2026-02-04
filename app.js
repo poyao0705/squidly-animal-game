@@ -95,9 +95,9 @@ class FishGame {
     };
 
     Object.entries(defaults).forEach(([key, val]) => {
-      SquidlyAPI.firebaseOnValue(`fish-game/${key}`, (snapshot) => {
+      SquidlyAPI.firebaseOnValue(key, (snapshot) => {
         if (snapshot === null || snapshot === undefined) {
-          SquidlyAPI.firebaseSet(`fish-game/${key}`, val);
+          SquidlyAPI.firebaseSet(key, val);
         }
       }, { onlyOnce: true });
     });
@@ -133,7 +133,7 @@ class FishGame {
             (!participantActive && this.isMultiplayerMode)
         ) {
             console.log(`[FishGame] Auto-switching to ${targetMode}`);
-            SquidlyAPI.firebaseSet("fish-game/gameMode", targetMode);
+            SquidlyAPI.firebaseSet("gameMode", targetMode);
         }
     });
   }
@@ -142,11 +142,11 @@ class FishGame {
     this._ui.setupGridControls({
         onGridIncrease: () => {
             const newSize = Math.min(4, this.gridSize + 1);
-            if (newSize !== this.gridSize) SquidlyAPI.firebaseSet("fish-game/gridSize", newSize);
+            if (newSize !== this.gridSize) SquidlyAPI.firebaseSet("gridSize", newSize);
         },
         onGridDecrease: () => {
             const newSize = Math.max(1, this.gridSize - 1);
-            if (newSize !== this.gridSize) SquidlyAPI.firebaseSet("fish-game/gridSize", newSize);
+            if (newSize !== this.gridSize) SquidlyAPI.firebaseSet("gridSize", newSize);
         }
     });
 
@@ -161,7 +161,7 @@ class FishGame {
 
   _setupFirebaseSubscriptions() {
     // 1. Grid Size
-    SquidlyAPI.firebaseOnValue("fish-game/gridSize", (value) => {
+    SquidlyAPI.firebaseOnValue("gridSize", (value) => {
         const validated = this._gameService.validateGridSize(value);
         if (this.gridSize !== validated) {
             this.gridSize = this._gameService.setGridSize(validated);
@@ -177,7 +177,7 @@ class FishGame {
     });
 
     // 2. Score
-    SquidlyAPI.firebaseOnValue("fish-game/score", (value) => {
+    SquidlyAPI.firebaseOnValue("score", (value) => {
         const score = Number(value);
         if (Number.isFinite(score) && score >= 0) {
             this._gameService.setScore(score);
@@ -190,12 +190,12 @@ class FishGame {
     this._initializeFirebaseStarsSync();
 
     // 4. Game Mode
-    SquidlyAPI.firebaseOnValue("fish-game/gameMode", (value) => {
+    SquidlyAPI.firebaseOnValue("gameMode", (value) => {
         this._setGameMode(value);
     });
 
     // 5. Swap State
-    SquidlyAPI.firebaseOnValue("fish-game/isSwapped", (value) => {
+    SquidlyAPI.firebaseOnValue("isSwapped", (value) => {
         const isSwapped = value === true;
         
         if (this._isSwapped !== isSwapped) {
@@ -216,7 +216,7 @@ class FishGame {
     if (this._firebaseStarsSyncInitialized) return;
     this._firebaseStarsSyncInitialized = true;
 
-    SquidlyAPI.firebaseOnValue("fish-game/stars", (value) => {
+    SquidlyAPI.firebaseOnValue("stars", (value) => {
         this._onFirebaseStarsUpdate(value);
     });
   }
@@ -283,7 +283,7 @@ class FishGame {
     } else if (result.shouldGenerateStars) {
         // Single Player: Reset swap, hide grid, generate stars
         if (this._isSwapped) {
-            SquidlyAPI.firebaseSet("fish-game/isSwapped", false);
+            SquidlyAPI.firebaseSet("isSwapped", false);
             // Optimistic update for immediate logic
             this._isSwapped = false;
             if (this.currentCursor) this.currentCursor.setIsHost(this.isHost);
@@ -313,7 +313,7 @@ class FishGame {
         console.warn("[FishGame] Cannot swap in single-player.");
         return;
     }
-    SquidlyAPI.firebaseSet("fish-game/isSwapped", !this._isSwapped);
+    SquidlyAPI.firebaseSet("isSwapped", !this._isSwapped);
   }
 
   _updateStarGridUI() {
@@ -357,13 +357,13 @@ class FishGame {
           .sort((a, b) => a.row - b.row || a.col - b.col)
           .map(s => `${s.row}_${s.col}`).join(",") 
       : "";
-    SquidlyAPI.firebaseSet("fish-game/stars", serialized);
+    SquidlyAPI.firebaseSet("stars", serialized);
   }
 
   incrementScore() {
     const newScore = this._gameService.incrementScore();
     this.score = newScore;
-    SquidlyAPI.firebaseSet("fish-game/score", newScore);
+    SquidlyAPI.firebaseSet("score", newScore);
     this._ui.updateScore(newScore);
   }
 
@@ -374,7 +374,7 @@ class FishGame {
     this.score = result.newScore;
     this.firebaseStars = result.remainingStars;
     
-    SquidlyAPI.firebaseSet("fish-game/score", result.newScore);
+    SquidlyAPI.firebaseSet("score", result.newScore);
     this._setFirebaseStars(result.remainingStars);
     
     this._ui.updateScore(result.newScore);
