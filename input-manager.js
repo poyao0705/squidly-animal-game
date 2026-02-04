@@ -34,7 +34,7 @@ class InputManager {
    */
   updatePointerPosition(x, y, id = "default") {
     if (x === undefined || y === undefined || x === null || y === null) {
-      console.warn("InputManager: Invalid coordinates received:", x, y, "for user:", id);
+      console.log("InputManager: Invalid coordinates received:", x, y, "for user:", id);
       return;
     }
 

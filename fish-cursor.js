@@ -694,23 +694,6 @@ class WebGLFishCursor {
                 fish.targetPos.copy(this.planeHit);
             }
 
-            // DEBUG: Periodic logging of fish position vs cursor position
-            if (!this._lastFishPosLog) this._lastFishPosLog = 0;
-            if (now - this._lastFishPosLog >= 5000) {
-                // Convert fish 3D position back to approximate screen coords
-                const fishScreenX = ((fish.group.position.x / this._viewBoundsX) + 1) * 0.5 * w;
-                const fishScreenY = (1 - ((fish.group.position.y / this._viewBoundsY) + 1) * 0.5) * h;
-                console.log(`[DEBUG fish-cursor.js] Position Comparison:`, {
-                    cursorInput: { x: activePointer.x, y: activePointer.y },
-                    mouseNdc: { x: this.mouseNdc.x.toFixed(3), y: this.mouseNdc.y.toFixed(3) },
-                    fishTarget3D: { x: fish.targetPos.x.toFixed(2), y: fish.targetPos.y.toFixed(2) },
-                    fishActual3D: { x: fish.group.position.x.toFixed(2), y: fish.group.position.y.toFixed(2) },
-                    fishApproxScreen: { x: fishScreenX.toFixed(0), y: fishScreenY.toFixed(0) },
-                    windowSize: { w, h }
-                });
-                this._lastFishPosLog = now;
-            }
-
             // Update fish position, rotation, and animations
             this._updateFish(fish, dt, time);
         }
