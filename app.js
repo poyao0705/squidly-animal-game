@@ -119,7 +119,7 @@ class FishGame {
             isParticipant = !isParticipant;
         }
         
-        this.updatePointerPosition(data.x, data.y, null, isParticipant);
+        this.updatePointerPosition(data.x, data.y, isParticipant);
     });
 
     SquidlyAPI.addSessionInfoListener((info) => {
@@ -381,10 +381,10 @@ class FishGame {
     console.log(`[FishGame] Star collected: ${starId}`);
   }
 
-  updatePointerPosition(x, y, color = null, isParticipant = false) {
+  updatePointerPosition(x, y, isParticipant = false) {
     if (!this.currentCursor || !this.currentCursor.inputManager) return;
     const pointerId = isParticipant ? "participant" : "host";
-    this.currentCursor.inputManager.updatePointerPosition(x, y, color, pointerId);
+    this.currentCursor.inputManager.updatePointerPosition(x, y, pointerId);
   }
 }
 
