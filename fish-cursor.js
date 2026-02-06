@@ -1503,7 +1503,8 @@ class WebGLFishCursor {
     for (let i = this.stars.length - 1; i >= 0; i--) {
       if (!newIds.has(this.stars[i].id)) {
         // Animate out instead of instant remove
-        if (!this.stars[i].collecting) this._collectStar(i);
+        // Pass false to prevent "collection" event (score increment)
+        if (!this.stars[i].collecting) this._collectStar(i, false);
       }
     }
 
@@ -1615,11 +1616,18 @@ class WebGLFishCursor {
           (now - star.collectStart) / star.collectDuration,
         );
 
-        // Move towards fish (mouth-ish). If fish missing, just stay put.
-        const fishPos = this.fish?.group?.position;
-        if (fishPos) {
-          const tMove = this._easeOutCubic(p);
-          star.mesh.position.lerpVectors(star.collectStartPos, fishPos, tMove);
+        // Movement: only if standard collection (NOT silent removal)
+        // If isSilentRemoval is true, star fades in place without flying to fish.
+        if (!star.isSilentRemoval) {
+          const fishPos = this.fish?.group?.position;
+          if (fishPos) {
+            const tMove = this._easeOutCubic(p);
+            star.mesh.position.lerpVectors(
+              star.collectStartPos,
+              fishPos,
+              tMove,
+            );
+          }
         }
 
         // Pop then shrink: 0..0.25 pop up, then collapse to 0
@@ -1718,9 +1726,10 @@ class WebGLFishCursor {
    * - That client then updates Firebase, which syncs to all clients
    *
    * @param {number} index - Index of collected star in this.stars array
+   * @param {boolean} emitEvent - Whether to emit collection event (false for sync removal)
    * @private
    */
-  _collectStar(index) {
+  _collectStar(index, emitEvent = true) {
     if (index < 0 || index >= this.stars.length) return;
 
     const star = this.stars[index];
@@ -1728,13 +1737,18 @@ class WebGLFishCursor {
 
     // Mark as collecting and record animation start state
     star.collecting = true;
+    star.isSilentRemoval = !emitEvent; // Flag for animation logic
     star.collectStart = performance.now();
     star.collectDuration = 260; // ms
     star.collectStartPos = star.mesh.position.clone();
 
     // Call scoring callback immediately so Firebase removes it fast,
     // but keep the mesh locally until animation ends.
-    if (this._isControllingFish && typeof this.onStarCollected === "function") {
+    if (
+      emitEvent &&
+      this._isControllingFish &&
+      typeof this.onStarCollected === "function"
+    ) {
       this.onStarCollected(star.id);
     }
   }

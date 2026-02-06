@@ -1,6 +1,6 @@
 /**
  * @fileoverview Squidly Fish Game - Main Application Controller
- * 
+ *
  * This module manages the game state, Firebase synchronization, and coordinates
  * between the logic (GameService), UI (GameUI), and Renderer (WebGLFishCursor).
  */
@@ -16,9 +16,10 @@ class FishGame {
   constructor() {
     // 1. Identity Management
     // ------------------------------------------------------------------------
-    const sessionInfo = typeof session_info !== "undefined" ? session_info : null;
+    const sessionInfo =
+      typeof session_info !== "undefined" ? session_info : null;
     const hasSessionInfo = sessionInfo != null;
-    
+
     // Determine real host logic
     this._realIsHost = hasSessionInfo ? sessionInfo?.user === "host" : true;
     this._isSwapped = false;
@@ -40,7 +41,7 @@ class FishGame {
     this.score = 0;
     this.isMultiplayerMode = false;
     this.firebaseStars = [];
-    
+
     // Sync flags
     this._firebaseStarsSyncInitialized = false;
 
@@ -50,7 +51,7 @@ class FishGame {
   // ==========================================================================
   // Getters Delegates
   // ==========================================================================
-  
+
   get isHost() {
     return this._isSwapped ? !this._realIsHost : this._realIsHost;
   }
@@ -65,7 +66,7 @@ class FishGame {
     this._setupEventListeners();
     this._setupFirebaseSubscriptions();
     this._setupSidebarIcons();
-    
+
     // Initialize UI components
     this._ui.init(this.score);
   }
@@ -91,15 +92,19 @@ class FishGame {
       gridSize: 4,
       score: 0,
       gameMode: "single-player",
-      isSwapped: false
+      isSwapped: false,
     };
 
     Object.entries(defaults).forEach(([key, val]) => {
-      SquidlyAPI.firebaseOnValue(key, (snapshot) => {
-        if (snapshot === null || snapshot === undefined) {
-          SquidlyAPI.firebaseSet(key, val);
-        }
-      }, { onlyOnce: true });
+      SquidlyAPI.firebaseOnValue(
+        key,
+        (snapshot) => {
+          if (snapshot === null || snapshot === undefined) {
+            SquidlyAPI.firebaseSet(key, val);
+          }
+        },
+        { onlyOnce: true },
+      );
     });
   }
 
@@ -112,48 +117,49 @@ class FishGame {
 
     // Squidly API
     SquidlyAPI.addCursorListener((data) => {
-        let isParticipant = data.user.includes("participant");
-        
-        // Swap logic
-        if (this._isSwapped) {
-            isParticipant = !isParticipant;
-        }
-        
-        this.updatePointerPosition(data.x, data.y, isParticipant);
+      let isParticipant = data.user.includes("participant");
+
+      // Swap logic
+      if (this._isSwapped) {
+        isParticipant = !isParticipant;
+      }
+
+      this.updatePointerPosition(data.x, data.y, isParticipant);
     });
 
     SquidlyAPI.addSessionInfoListener((info) => {
-        if (!this.isHost) return; 
-        
-        const participantActive = info.participantActive === true;
-        const targetMode = participantActive ? "multiplayer" : "single-player";
+      if (!this.isHost) return;
 
-        if (
-            (participantActive && !this.isMultiplayerMode) ||
-            (!participantActive && this.isMultiplayerMode)
-        ) {
-            console.log(`[FishGame] Auto-switching to ${targetMode}`);
-            SquidlyAPI.firebaseSet("gameMode", targetMode);
-        }
+      const participantActive = info.participantActive === true;
+      const targetMode = participantActive ? "multiplayer" : "single-player";
+
+      if (
+        (participantActive && !this.isMultiplayerMode) ||
+        (!participantActive && this.isMultiplayerMode)
+      ) {
+        console.log(`[FishGame] Auto-switching to ${targetMode}`);
+        SquidlyAPI.firebaseSet("gameMode", targetMode);
+      }
     });
   }
 
   _setupSidebarIcons() {
     this._ui.setupGridControls({
-        onGridIncrease: () => {
-            const newSize = Math.min(4, this.gridSize + 1);
-            if (newSize !== this.gridSize) SquidlyAPI.firebaseSet("gridSize", newSize);
-        },
-        onGridDecrease: () => {
-            const newSize = Math.max(1, this.gridSize - 1);
-            if (newSize !== this.gridSize) SquidlyAPI.firebaseSet("gridSize", newSize);
-        }
+      onGridIncrease: () => {
+        const newSize = Math.min(4, this.gridSize + 1);
+        if (newSize !== this.gridSize)
+          SquidlyAPI.firebaseSet("gridSize", newSize);
+      },
+      onGridDecrease: () => {
+        const newSize = Math.max(1, this.gridSize - 1);
+        if (newSize !== this.gridSize)
+          SquidlyAPI.firebaseSet("gridSize", newSize);
+      },
     });
 
     // Initial Swap Button Check
     this._updateSwapButton();
   }
-  
 
   // ==========================================================================
   // FIREBASE SUBSCRIPTIONS & SYNC
@@ -162,28 +168,30 @@ class FishGame {
   _setupFirebaseSubscriptions() {
     // 1. Grid Size
     SquidlyAPI.firebaseOnValue("gridSize", (value) => {
-        const validated = this._gameService.validateGridSize(value);
-        if (this.gridSize !== validated) {
-            this.gridSize = this._gameService.setGridSize(validated);
-            
-            if (this.currentCursor) this.currentCursor.setStarGrid(validated);
-            
-            this._updateStarGridUI();
-            
-            if (!this.isMultiplayerMode && this.isHost) {
-                this._generateRandomStarsToFirebase();
-            }
+      const validated = this._gameService.validateGridSize(value);
+      if (this.gridSize !== validated) {
+        this.gridSize = this._gameService.setGridSize(validated);
+
+        if (this.currentCursor) this.currentCursor.setStarGrid(validated);
+
+        this._updateStarGridUI();
+
+        this._updateStarGridUI();
+
+        if (this.isHost) {
+          this._setFirebaseStars([]);
         }
+      }
     });
 
     // 2. Score
     SquidlyAPI.firebaseOnValue("score", (value) => {
-        const score = Number(value);
-        if (Number.isFinite(score) && score >= 0) {
-            this._gameService.setScore(score);
-            this.score = score;
-            this._ui.updateScore(score);
-        }
+      const score = Number(value);
+      if (Number.isFinite(score) && score >= 0) {
+        this._gameService.setScore(score);
+        this.score = score;
+        this._ui.updateScore(score);
+      }
     });
 
     // 3. Stars
@@ -191,24 +199,26 @@ class FishGame {
 
     // 4. Game Mode
     SquidlyAPI.firebaseOnValue("gameMode", (value) => {
-        this._setGameMode(value);
+      this._setGameMode(value);
     });
 
     // 5. Swap State
     SquidlyAPI.firebaseOnValue("isSwapped", (value) => {
-        const isSwapped = value === true;
-        
-        if (this._isSwapped !== isSwapped) {
-            this._isSwapped = isSwapped;
-            console.log(`[FishGame] Swap state changed to: ${isSwapped}. Effective IsHost: ${this.isHost}`);
-            
-            if (this.currentCursor) {
-                this.currentCursor.setIsHost(this.isHost);
-            }
-            
-            // Re-evaluate UI that depends on role
-            this._updateStarGridUI();
+      const isSwapped = value === true;
+
+      if (this._isSwapped !== isSwapped) {
+        this._isSwapped = isSwapped;
+        console.log(
+          `[FishGame] Swap state changed to: ${isSwapped}. Effective IsHost: ${this.isHost}`,
+        );
+
+        if (this.currentCursor) {
+          this.currentCursor.setIsHost(this.isHost);
         }
+
+        // Re-evaluate UI that depends on role
+        this._updateStarGridUI();
+      }
     });
   }
 
@@ -217,7 +227,7 @@ class FishGame {
     this._firebaseStarsSyncInitialized = true;
 
     SquidlyAPI.firebaseOnValue("stars", (value) => {
-        this._onFirebaseStarsUpdate(value);
+      this._onFirebaseStarsUpdate(value);
     });
   }
 
@@ -228,19 +238,20 @@ class FishGame {
       this.firebaseStars = [];
     } else if (typeof starsData === "string") {
       // Split and filter out empty entries (handles edge case of trailing commas)
-      this.firebaseStars = starsData.split(",")
-        .filter(s => s.length > 0)
-        .map(s => {
+      this.firebaseStars = starsData
+        .split(",")
+        .filter((s) => s.length > 0)
+        .map((s) => {
           const [row, col] = s.split("_").map(Number);
           // Generate deterministic ID from position (needed for collectStar filtering)
           return { id: `star_${row}_${col}`, row, col };
         })
-        .filter(s => !isNaN(s.row) && !isNaN(s.col));
+        .filter((s) => !isNaN(s.row) && !isNaN(s.col));
     } else {
       // Legacy: handle array format during migration
       this.firebaseStars = Array.isArray(starsData) ? starsData : [];
     }
-    
+
     this._gameService.setStars(this.firebaseStars);
 
     // Update UI
@@ -248,19 +259,28 @@ class FishGame {
 
     // Update Renderer
     if (this.currentCursor) {
-        this.currentCursor.syncStarsFromFirebase(this.firebaseStars);
+      this.currentCursor.syncStarsFromFirebase(this.firebaseStars);
     }
 
     // Auto-Regen Logic
-    if (this.isHost && 
-        this._firebaseStarsSyncInitialized && 
-        this._gameService.shouldRegenerateStars(this.firebaseStars, this.isMultiplayerMode)) {
-            
-        setTimeout(() => {
-            if (this._gameService.shouldRegenerateStars(this.firebaseStars, this.isMultiplayerMode)) {
-                this._generateRandomStarsToFirebase();
-            }
-        }, 500);
+    if (
+      this.isHost &&
+      this._firebaseStarsSyncInitialized &&
+      this._gameService.shouldRegenerateStars(
+        this.firebaseStars,
+        this.isMultiplayerMode,
+      )
+    ) {
+      setTimeout(() => {
+        if (
+          this._gameService.shouldRegenerateStars(
+            this.firebaseStars,
+            this.isMultiplayerMode,
+          )
+        ) {
+          this._generateRandomStarsToFirebase();
+        }
+      }, 500);
     }
   }
 
@@ -277,26 +297,26 @@ class FishGame {
     console.log("[FishGame] Mode set to:", mode);
 
     if (result.shouldClearStars) {
-        // Multiplayer: Clear stars
-        this._setFirebaseStars([]);
-        this._updateStarGridUI();
+      // Multiplayer: Clear stars
+      this._setFirebaseStars([]);
+      this._updateStarGridUI();
     } else if (result.shouldGenerateStars) {
-        // Single Player: Reset swap, hide grid, generate stars
-        if (this._isSwapped) {
-            SquidlyAPI.firebaseSet("isSwapped", false);
-            // Optimistic update for immediate logic
-            this._isSwapped = false;
-            if (this.currentCursor) this.currentCursor.setIsHost(this.isHost);
-        }
+      // Single Player: Reset swap, hide grid, generate stars
+      if (this._isSwapped) {
+        SquidlyAPI.firebaseSet("isSwapped", false);
+        // Optimistic update for immediate logic
+        this._isSwapped = false;
+        if (this.currentCursor) this.currentCursor.setIsHost(this.isHost);
+      }
 
-        this._updateStarGridUI();
-        if (this.isHost) {
-            this._generateRandomStarsToFirebase();
-        }
+      this._updateStarGridUI();
+      if (this.isHost) {
+        this._generateRandomStarsToFirebase();
+      }
     }
 
     if (this.currentCursor && this.currentCursor.setMultiplayerMode) {
-        this.currentCursor.setMultiplayerMode(result.isMultiplayer);
+      this.currentCursor.setMultiplayerMode(result.isMultiplayer);
     }
 
     this._updateSwapButton();
@@ -304,14 +324,14 @@ class FishGame {
 
   _updateSwapButton() {
     this._ui.updateSwapButton(this.isMultiplayerMode, () => {
-        this._toggleIdentitySwap();
+      this._toggleIdentitySwap();
     });
   }
 
   _toggleIdentitySwap() {
     if (!this.isMultiplayerMode) {
-        console.warn("[FishGame] Cannot swap in single-player.");
-        return;
+      console.warn("[FishGame] Cannot swap in single-player.");
+      return;
     }
     SquidlyAPI.firebaseSet("isSwapped", !this._isSwapped);
   }
@@ -319,12 +339,12 @@ class FishGame {
   _updateStarGridUI() {
     // Only show grid if Multiplayer AND Host
     const shouldShow = this.isMultiplayerMode && this.isHost;
-    
+
     this._ui.updateStarControlGrid(
-        shouldShow, 
-        this.gridSize, 
-        this.firebaseStars, 
-        (row, col) => this._onStarCellClick(row, col)
+      shouldShow,
+      this.gridSize,
+      this.firebaseStars,
+      (row, col) => this._onStarCellClick(row, col),
     );
   }
 
@@ -332,10 +352,10 @@ class FishGame {
     // Ensure service is up to date
     this._gameService.setStars(this.firebaseStars);
     const newStars = this._gameService.toggleStarAtPosition(row, col);
-    
+
     // Optimistic update
-    this.firebaseStars = newStars; 
-    
+    this.firebaseStars = newStars;
+
     // Sync
     this._setFirebaseStars(newStars);
   }
@@ -351,12 +371,14 @@ class FishGame {
   _setFirebaseStars(stars) {
     // Serialize stars array as comma-separated string: "row_col,row_col,..."
     // Sort by row then col for consistent ordering
-    const serialized = stars.length > 0 
-      ? stars
-          .slice() // Don't mutate original
-          .sort((a, b) => a.row - b.row || a.col - b.col)
-          .map(s => `${s.row}_${s.col}`).join(",") 
-      : "";
+    const serialized =
+      stars.length > 0
+        ? stars
+            .slice() // Don't mutate original
+            .sort((a, b) => a.row - b.row || a.col - b.col)
+            .map((s) => `${s.row}_${s.col}`)
+            .join(",")
+        : "";
     SquidlyAPI.firebaseSet("stars", serialized);
   }
 
@@ -370,13 +392,13 @@ class FishGame {
   onStarCollected(starId) {
     if (!starId) return;
     const result = this._gameService.collectStar(starId);
-    
+
     this.score = result.newScore;
     this.firebaseStars = result.remainingStars;
-    
+
     SquidlyAPI.firebaseSet("score", result.newScore);
     this._setFirebaseStars(result.remainingStars);
-    
+
     this._ui.updateScore(result.newScore);
     console.log(`[FishGame] Star collected: ${starId}`);
   }
