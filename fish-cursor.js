@@ -1503,8 +1503,8 @@ class WebGLFishCursor {
     for (let i = this.stars.length - 1; i >= 0; i--) {
       if (!newIds.has(this.stars[i].id)) {
         // Animate out instead of instant remove
-        // Pass false to prevent "collection" event (score increment)
-        if (!this.stars[i].collecting) this._collectStar(i, false);
+        // Use remove animation (fade in place, no score)
+        this._removeStarAnimated(i);
       }
     }
 
@@ -1520,24 +1520,6 @@ class WebGLFishCursor {
 
     // Brief delay before collision detection to prevent instant collection
     this._collisionEnabledAt = performance.now() + 500;
-  }
-
-  /**
-   * Removes a star by its array index.
-   * Disposes the mesh and removes from tracking arrays.
-   *
-   * @param {number} index - Index in this.stars array
-   * @private
-   */
-  _removeStarByIndex(index) {
-    if (index < 0 || index >= this.stars.length) return;
-
-    const star = this.stars[index];
-    this._disposeStarMesh(star.mesh);
-
-    // Remove from tracking arrays
-    this.stars.splice(index, 1);
-    this._starCells.splice(index, 1);
   }
 
   /**
@@ -1608,29 +1590,23 @@ class WebGLFishCursor {
       const star = this.stars[i];
 
       // ─────────────────────────────────────────────────
-      // COLLECTION ANIMATION
+      // COLLECTION / REMOVAL ANIMATION
       // ─────────────────────────────────────────────────
-      if (star.collecting) {
+      if (star.state === "collected" || star.state === "removing") {
         const now = performance.now();
-        const p = this._clamp01(
-          (now - star.collectStart) / star.collectDuration,
-        );
+        const p = this._clamp01((now - star.animStart) / star.animDuration);
 
-        // Movement: only if standard collection (NOT silent removal)
-        // If isSilentRemoval is true, star fades in place without flying to fish.
-        if (!star.isSilentRemoval) {
+        // Movement: Only for "collected" state (fly to fish)
+        if (star.state === "collected") {
           const fishPos = this.fish?.group?.position;
           if (fishPos) {
             const tMove = this._easeOutCubic(p);
-            star.mesh.position.lerpVectors(
-              star.collectStartPos,
-              fishPos,
-              tMove,
-            );
+            star.mesh.position.lerpVectors(star.animStartPos, fishPos, tMove);
           }
         }
+        // "removing" state stays in place (fade out only)
 
-        // Pop then shrink: 0..0.25 pop up, then collapse to 0
+        // Scale Animation
         let s;
         if (p < 0.25) {
           const t = this._easeOutCubic(p / 0.25);
@@ -1718,39 +1694,50 @@ class WebGLFishCursor {
   }
 
   /**
-   * Starts the star collection animation.
-   * The star will pop, fade, and move toward the fish before disposal.
-   *
-   * Collision authority prevents double-counting in multiplayer:
-   * - Only the client controlling the fish calls the callback
-   * - That client then updates Firebase, which syncs to all clients
+   * Starts the star collection animation (gameplay event).
+   * Visual: Pop, fade, and fly toward the fish.
+   * Logic: Triggers onStarCollected callback (updates score etc).
    *
    * @param {number} index - Index of collected star in this.stars array
-   * @param {boolean} emitEvent - Whether to emit collection event (false for sync removal)
    * @private
    */
-  _collectStar(index, emitEvent = true) {
+  _collectStar(index) {
     if (index < 0 || index >= this.stars.length) return;
 
     const star = this.stars[index];
-    if (star.collecting) return; // Already animating
+    if (star.state) return; // Already animating (collected or removing)
 
-    // Mark as collecting and record animation start state
-    star.collecting = true;
-    star.isSilentRemoval = !emitEvent; // Flag for animation logic
-    star.collectStart = performance.now();
-    star.collectDuration = 260; // ms
-    star.collectStartPos = star.mesh.position.clone();
+    // Set state
+    star.state = "collected";
+    star.animStart = performance.now();
+    star.animDuration = 260; // ms
+    star.animStartPos = star.mesh.position.clone();
 
-    // Call scoring callback immediately so Firebase removes it fast,
-    // but keep the mesh locally until animation ends.
-    if (
-      emitEvent &&
-      this._isControllingFish &&
-      typeof this.onStarCollected === "function"
-    ) {
+    // Trigger gameplay logic
+    if (this._isControllingFish && typeof this.onStarCollected === "function") {
       this.onStarCollected(star.id);
     }
+  }
+
+  /**
+   * Starts the star removal animation (sync cleanup).
+   * Visual: Pop and fade in place (no flight).
+   * Logic: Does NOT trigger onStarCollected.
+   *
+   * @param {number} index - Index of star to remove
+   * @private
+   */
+  _removeStarAnimated(index) {
+    if (index < 0 || index >= this.stars.length) return;
+
+    const star = this.stars[index];
+    if (star.state) return; // Already animating
+
+    // Set state
+    star.state = "removing";
+    star.animStart = performance.now();
+    star.animDuration = 260; // ms
+    star.animStartPos = star.mesh.position.clone();
   }
 
   /**

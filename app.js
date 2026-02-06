@@ -176,8 +176,6 @@ class FishGame {
 
         this._updateStarGridUI();
 
-        this._updateStarGridUI();
-
         if (this.isHost) {
           this._setFirebaseStars([]);
         }
